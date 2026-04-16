@@ -1,0 +1,25 @@
+# Secrets
+.env
+
+# Python cache / local env
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Editor / local tooling
+.vscode/
+.claude/
+
+# Runtime state
+data/bot_status.json
+data/risk_state.json
+data/trades.db
+data/weights.json
+data/weights_history.jsonl
+
+# Live logs and archives
+logs/arcs_fx.log
+logs/trading_events.log
+logs/archive/
+

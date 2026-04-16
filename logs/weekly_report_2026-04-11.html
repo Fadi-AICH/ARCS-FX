@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>ARCS-FX Weekly Report -- 2026-04-04 to 2026-04-11</title>
+<style>
+  body  { font-family: monospace; background: #0d1117; color: #c9d1d9;
+           max-width: 1100px; margin: 0 auto; padding: 24px; }
+  h1    { color: #58a6ff; border-bottom: 1px solid #30363d; padding-bottom: 8px; }
+  h2    { color: #79c0ff; margin-top: 32px; border-left: 3px solid #58a6ff;
+           padding-left: 10px; }
+  h3    { color: #a5d6ff; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+  th    { background: #161b22; color: #58a6ff; padding: 6px 12px;
+           text-align: left; border: 1px solid #30363d; }
+  td    { padding: 5px 12px; border: 1px solid #21262d; }
+  tr:nth-child(even) { background: #161b22; }
+  .stat-box { display: inline-block; background: #161b22; border: 1px solid #30363d;
+               border-radius: 6px; padding: 12px 20px; margin: 6px;
+               min-width: 140px; text-align: center; }
+  .stat-label { font-size: 0.75em; color: #8b949e; display: block; }
+  .stat-val   { font-size: 1.5em; font-weight: bold; display: block; margin-top: 4px; }
+  pre   { background: #161b22; padding: 12px; border-radius: 4px;
+           border: 1px solid #30363d; overflow-x: auto; font-size: 0.85em; }
+  ul    { line-height: 2; }
+  .note { font-size: 0.8em; color: #8b949e; }
+  .generated { text-align: right; color: #8b949e; font-size: 0.8em; margin-top: 32px; }
+</style>
+</head>
+<body>
+
+<h1>ARCS-FX Weekly Performance Report</h1>
+<p>Period: <strong>2026-04-04 to 2026-04-11</strong> &nbsp;|&nbsp; Generated: 2026-04-11 19:13 UTC</p>
+
+<h2>1. Executive Summary</h2>
+<div>
+  <div class="stat-box">
+    <span class="stat-label">Total P&L</span>
+    <span class="stat-val" style="color:#00c853">+$218.00</span>
+  </div>
+  <div class="stat-box">
+    <span class="stat-label">Win Rate</span>
+    <span class="stat-val" style="color:#00c853">63%</span>
+  </div>
+  <div class="stat-box">
+    <span class="stat-label">Profit Factor</span>
+    <span class="stat-val" style="color:#00c853">2.66</span>
+  </div>
+  <div class="stat-box">
+    <span class="stat-label">Trades</span>
+    <span class="stat-val">30</span>
+  </div>
+  <div class="stat-box">
+    <span class="stat-label">Wins / Losses</span>
+    <span class="stat-val">19 / 11</span>
+  </div>
+  <div class="stat-box">
+    <span class="stat-label">Avg Win / Loss</span>
+    <span class="stat-val">+$18.37 / $-11.91</span>
+  </div>
+</div>
+
+<h2>2. Equity Curve</h2>
+<pre> $+106.0 |                 * *                                        
+          |                  * *                                       
+          |              * *                                           
+          |               *                                            
+          |           * *                                              
+ $+33.5 |          * *                                               
+          |                                                            
+          |**-----***--------------------------------------------------
+          |  * * *                                                     
+ $-39.0 |   * *                                                      
+          +------------------------------------------------------------
+           Start                                               Now</pre>
+
+<h2>3. Performance Breakdown</h2>
+
+    <h3>Signal Type</h3>
+    <table>
+      <tr>
+        <th>Signal Type</th><th>Trades</th><th>Win%</th>
+        <th>Prof.Factor</th><th>Total P&L</th>
+        <th>Avg Conf</th><th>Avg Dur</th>
+      </tr>
+      
+        <tr>
+          <td>OB_RETEST</td>
+          <td>13</td>
+          <td style="color:#00c853;font-weight:bold">92%</td>
+          <td style="color:#00c853;font-weight:bold">20.17</td>
+          <td>+$230.00</td>
+          <td>83</td>
+          <td>1057m</td>
+        </tr>
+        <tr>
+          <td>FVG_FILL</td>
+          <td>8</td>
+          <td style="color:#00c853;font-weight:bold">62%</td>
+          <td style="color:#00c853;font-weight:bold">2.42</td>
+          <td>+$51.00</td>
+          <td>78</td>
+          <td>870m</td>
+        </tr>
+        <tr>
+          <td>SD_BOUNCE</td>
+          <td>9</td>
+          <td style="color:#d50000;font-weight:bold">22%</td>
+          <td style="color:#d50000;font-weight:bold">0.24</td>
+          <td>$-63.00</td>
+          <td>72</td>
+          <td>800m</td>
+        </tr>
+    </table>
+    <p class="note">* = fewer than 5 trades (low statistical confidence)</p>
+    
+
+    <h3>Regime</h3>
+    <table>
+      <tr>
+        <th>Regime</th><th>Trades</th><th>Win%</th>
+        <th>Prof.Factor</th><th>Total P&L</th>
+        <th>Avg Conf</th><th>Avg Dur</th>
+      </tr>
+      
+        <tr>
+          <td>TRENDING</td>
+          <td>21</td>
+          <td style="color:#00c853;font-weight:bold">81%</td>
+          <td style="color:#00c853;font-weight:bold">6.85</td>
+          <td>+$281.00</td>
+          <td>81</td>
+          <td>986m</td>
+        </tr>
+        <tr>
+          <td>RANGING</td>
+          <td>9</td>
+          <td style="color:#d50000;font-weight:bold">22%</td>
+          <td style="color:#d50000;font-weight:bold">0.24</td>
+          <td>$-63.00</td>
+          <td>72</td>
+          <td>800m</td>
+        </tr>
+    </table>
+    <p class="note">* = fewer than 5 trades (low statistical confidence)</p>
+    
+
+    <h3>Session</h3>
+    <table>
+      <tr>
+        <th>Session</th><th>Trades</th><th>Win%</th>
+        <th>Prof.Factor</th><th>Total P&L</th>
+        <th>Avg Conf</th><th>Avg Dur</th>
+      </tr>
+      
+        <tr>
+          <td>OVERLAP</td>
+          <td>11</td>
+          <td style="color:#00c853;font-weight:bold">82%</td>
+          <td style="color:#00c853;font-weight:bold">6.77</td>
+          <td>+$150.00</td>
+          <td>82</td>
+          <td>976m</td>
+        </tr>
+        <tr>
+          <td>NY</td>
+          <td>9</td>
+          <td style="color:#ffd600;font-weight:bold">56%</td>
+          <td style="color:#ffd600;font-weight:bold">1.96</td>
+          <td>+$45.00</td>
+          <td>78</td>
+          <td>833m</td>
+        </tr>
+        <tr>
+          <td>LONDON</td>
+          <td>7</td>
+          <td style="color:#ffd600;font-weight:bold">57%</td>
+          <td style="color:#ffd600;font-weight:bold">1.90</td>
+          <td>+$34.00</td>
+          <td>76</td>
+          <td>1029m</td>
+        </tr>
+        <tr>
+          <td>ASIAN *</td>
+          <td>3</td>
+          <td style="color:#d50000;font-weight:bold">33%</td>
+          <td style="color:#d50000;font-weight:bold">0.45</td>
+          <td>$-11.00</td>
+          <td>71</td>
+          <td>820m</td>
+        </tr>
+    </table>
+    <p class="note">* = fewer than 5 trades (low statistical confidence)</p>
+    
+
+    <h3>Symbol</h3>
+    <table>
+      <tr>
+        <th>Symbol</th><th>Trades</th><th>Win%</th>
+        <th>Prof.Factor</th><th>Total P&L</th>
+        <th>Avg Conf</th><th>Avg Dur</th>
+      </tr>
+      
+        <tr>
+          <td>EURJPY *</td>
+          <td>2</td>
+          <td style="color:#00c853;font-weight:bold">100%</td>
+          <td style="color:#00c853;font-weight:bold">999.00</td>
+          <td>+$53.00</td>
+          <td>82</td>
+          <td>450m</td>
+        </tr>
+        <tr>
+          <td>USDCHF *</td>
+          <td>2</td>
+          <td style="color:#00c853;font-weight:bold">100%</td>
+          <td style="color:#00c853;font-weight:bold">999.00</td>
+          <td>+$25.00</td>
+          <td>76</td>
+          <td>990m</td>
+        </tr>
+        <tr>
+          <td>EURUSD</td>
+          <td>7</td>
+          <td style="color:#00c853;font-weight:bold">71%</td>
+          <td style="color:#00c853;font-weight:bold">3.38</td>
+          <td>+$62.00</td>
+          <td>82</td>
+          <td>1106m</td>
+        </tr>
+        <tr>
+          <td>USDJPY</td>
+          <td>5</td>
+          <td style="color:#00c853;font-weight:bold">60%</td>
+          <td style="color:#00c853;font-weight:bold">2.52</td>
+          <td>+$38.00</td>
+          <td>79</td>
+          <td>888m</td>
+        </tr>
+        <tr>
+          <td>GBPUSD</td>
+          <td>7</td>
+          <td style="color:#ffd600;font-weight:bold">57%</td>
+          <td style="color:#00c853;font-weight:bold">2.16</td>
+          <td>+$44.00</td>
+          <td>78</td>
+          <td>1046m</td>
+        </tr>
+        <tr>
+          <td>USDCAD *</td>
+          <td>2</td>
+          <td style="color:#ffd600;font-weight:bold">50%</td>
+          <td style="color:#ffd600;font-weight:bold">1.46</td>
+          <td>+$5.00</td>
+          <td>76</td>
+          <td>630m</td>
+        </tr>
+        <tr>
+          <td>NZDUSD *</td>
+          <td>2</td>
+          <td style="color:#ffd600;font-weight:bold">50%</td>
+          <td style="color:#d50000;font-weight:bold">0.90</td>
+          <td>$-1.00</td>
+          <td>72</td>
+          <td>690m</td>
+        </tr>
+        <tr>
+          <td>AUDUSD *</td>
+          <td>3</td>
+          <td style="color:#d50000;font-weight:bold">33%</td>
+          <td style="color:#d50000;font-weight:bold">0.62</td>
+          <td>$-8.00</td>
+          <td>73</td>
+          <td>960m</td>
+        </tr>
+    </table>
+    <p class="note">* = fewer than 5 trades (low statistical confidence)</p>
+    
+
+    <h3>Regime x Signal Type</h3>
+    <table>
+      <tr>
+        <th>Regime</th><th>Signal Type</th><th>Trades</th>
+        <th>Win%</th><th>Prof.Factor</th><th>Total P&L</th><th>Avg Conf</th>
+      </tr>
+      
+        <tr>
+          <td>TRENDING</td>
+          <td>OB_RETEST</td>
+          <td>13</td>
+          <td style="color:#00c853;font-weight:bold">92%</td>
+          <td style="color:#00c853;font-weight:bold">20.17</td>
+          <td>+$230.00</td>
+          <td>83</td>
+        </tr>
+        <tr>
+          <td>TRENDING</td>
+          <td>FVG_FILL</td>
+          <td>8</td>
+          <td style="color:#00c853;font-weight:bold">62%</td>
+          <td style="color:#00c853;font-weight:bold">2.42</td>
+          <td>+$51.00</td>
+          <td>78</td>
+        </tr>
+        <tr>
+          <td>RANGING</td>
+          <td>SD_BOUNCE</td>
+          <td>9</td>
+          <td style="color:#d50000;font-weight:bold">22%</td>
+          <td style="color:#d50000;font-weight:bold">0.24</td>
+          <td>$-63.00</td>
+          <td>72</td>
+        </tr>
+    </table>
+    <p class="note">* = fewer than 5 trades</p>
+    
+
+<h2>4. Confidence Gate Calibration</h2>
+<p>
+  A well-calibrated gate shows increasing win rates as confidence rises.
+  If the 70-79 band has a higher win rate than the 80-89 band, the scoring
+  system has a problem that needs manual review.
+</p>
+<table>
+  <tr>
+    <th>Confidence Band</th><th>Trades</th><th>Win Rate</th><th>Avg P&L</th>
+  </tr>
+  
+        <tr>
+          <td>70-79</td>
+          <td>17</td>
+          <td style="color:#d50000;font-weight:bold">35%</td>
+          <td>$-2.47</td>
+        </tr>
+        <tr>
+          <td>80-89</td>
+          <td>12</td>
+          <td style="color:#00c853;font-weight:bold">100%</td>
+          <td>+$20.17</td>
+        </tr>
+        <tr>
+          <td>90-99 *</td>
+          <td>1</td>
+          <td style="color:#00c853;font-weight:bold">100%</td>
+          <td>+$18.00</td>
+        </tr>
+</table>
+<p class="note">* = fewer than 5 trades (low statistical confidence)</p>
+
+<h2>5. Trade Management Effectiveness</h2>
+<p>
+  Breakeven: does moving SL to entry at +1R save trades?
+  Trailing: does trailing stop outperform fixed TP?
+</p>
+<table>
+  <tr>
+    <th>Rule</th><th>Applied</th><th>Trades</th>
+    <th>Win Rate</th><th>Avg P&L</th><th>Prof.Factor</th>
+  </tr>
+  
+        <tr>
+          <td>Breakeven Applied</td>
+          <td>No</td>
+          <td>11</td>
+          <td style="color:#d50000;font-weight:bold">0%</td>
+          <td>$-11.91</td>
+          <td>0.00</td>
+        </tr>
+        <tr>
+          <td>Breakeven Applied</td>
+          <td>Yes</td>
+          <td>19</td>
+          <td style="color:#00c853;font-weight:bold">100%</td>
+          <td>+$18.37</td>
+          <td>999.00</td>
+        </tr>
+        <tr>
+          <td>Trailing Active</td>
+          <td>No</td>
+          <td>20</td>
+          <td style="color:#ffd600;font-weight:bold">45%</td>
+          <td>+$0.50</td>
+          <td>1.08</td>
+        </tr>
+        <tr>
+          <td>Trailing Active</td>
+          <td>Yes</td>
+          <td>10</td>
+          <td style="color:#00c853;font-weight:bold">100%</td>
+          <td>+$20.80</td>
+          <td>999.00</td>
+        </tr>
+</table>
+
+<h2>6. Recent Trades (last 10)</h2>
+<table>
+  <tr>
+    <th>Symbol</th><th>Dir</th><th>Signal</th><th>Regime</th><th>Session</th>
+    <th>Conf</th><th>Result</th><th>P&L</th><th>Reason</th>
+  </tr>
+  
+        <tr>
+          <td>USDJPY</td>
+          <td>BUY</td>
+          <td>FVG_FILL</td>
+          <td>TRENDING</td>
+          <td>NY</td>
+          <td>77</td>
+          <td style="color:#d50000;font-weight:bold">LOSS</td>
+          <td>$-12.00</td>
+          <td>SL_HIT</td>
+        </tr>
+        <tr>
+          <td>GBPUSD</td>
+          <td>BUY</td>
+          <td>OB_RETEST</td>
+          <td>TRENDING</td>
+          <td>LONDON</td>
+          <td>86</td>
+          <td style="color:#00c853;font-weight:bold">WIN</td>
+          <td>+$20.00</td>
+          <td>TP_HIT</td>
+        </tr>
+        <tr>
+          <td>EURUSD</td>
+          <td>BUY</td>
+          <td>SD_BOUNCE</td>
+          <td>RANGING</td>
+          <td>OVERLAP</td>
+          <td>73</td>
+          <td style="color:#d50000;font-weight:bold">LOSS</td>
+          <td>$-13.00</td>
+          <td>SL_HIT</td>
+        </tr>
+        <tr>
+          <td>EURJPY</td>
+          <td>SELL</td>
+          <td>FVG_FILL</td>
+          <td>TRENDING</td>
+          <td>OVERLAP</td>
+          <td>82</td>
+          <td style="color:#00c853;font-weight:bold">WIN</td>
+          <td>+$25.00</td>
+          <td>TP_HIT</td>
+        </tr>
+        <tr>
+          <td>USDCAD</td>
+          <td>BUY</td>
+          <td>OB_RETEST</td>
+          <td>TRENDING</td>
+          <td>NY</td>
+          <td>78</td>
+          <td style="color:#00c853;font-weight:bold">WIN</td>
+          <td>+$16.00</td>
+          <td>TP_HIT</td>
+        </tr>
+        <tr>
+          <td>NZDUSD</td>
+          <td>SELL</td>
+          <td>SD_BOUNCE</td>
+          <td>RANGING</td>
+          <td>ASIAN</td>
+          <td>72</td>
+          <td style="color:#d50000;font-weight:bold">LOSS</td>
+          <td>$-10.00</td>
+          <td>SL_HIT</td>
+        </tr>
+        <tr>
+          <td>USDJPY</td>
+          <td>BUY</td>
+          <td>OB_RETEST</td>
+          <td>TRENDING</td>
+          <td>NY</td>
+          <td>80</td>
+          <td style="color:#00c853;font-weight:bold">WIN</td>
+          <td>+$22.00</td>
+          <td>TP_HIT</td>
+        </tr>
+        <tr>
+          <td>AUDUSD</td>
+          <td>BUY</td>
+          <td>FVG_FILL</td>
+          <td>TRENDING</td>
+          <td>NY</td>
+          <td>76</td>
+          <td style="color:#00c853;font-weight:bold">WIN</td>
+          <td>+$13.00</td>
+          <td>TP_HIT</td>
+        </tr>
+        <tr>
+          <td>GBPUSD</td>
+          <td>SELL</td>
+          <td>SD_BOUNCE</td>
+          <td>RANGING</td>
+          <td>LONDON</td>
+          <td>70</td>
+          <td style="color:#d50000;font-weight:bold">LOSS</td>
+          <td>$-12.00</td>
+          <td>SL_HIT</td>
+        </tr>
+        <tr>
+          <td>EURUSD</td>
+          <td>BUY</td>
+          <td>OB_RETEST</td>
+          <td>TRENDING</td>
+          <td>OVERLAP</td>
+          <td>91</td>
+          <td style="color:#00c853;font-weight:bold">WIN</td>
+          <td>+$18.00</td>
+          <td>TP_HIT</td>
+        </tr>
+</table>
+
+<h2>7. Weight Adjustments This Cycle</h2>
+<table>
+  <tr>
+    <th>Component</th><th>Before</th><th>After</th><th>Delta</th><th>Reason</th>
+  </tr>
+  
+            <tr>
+              <td>Regime Clarity</td>
+              <td>25.09</td>
+              <td>25.21</td>
+              <td style="color:#00c853;font-weight:bold">+0.12</td>
+              <td>TRENDING PF=6.85 vs RANGING PF=0.24 (delta recommendation: +2.0)</td>
+            </tr>
+            <tr>
+              <td>Price Action</td>
+              <td>20.48</td>
+              <td>20.97</td>
+              <td style="color:#00c853;font-weight:bold">+0.49</td>
+              <td>OB_RETEST PF=20.17 vs SD_BOUNCE PF=0.24 (delta recommendation: +3.0)</td>
+            </tr>
+            <tr>
+              <td>Mtf Confluence</td>
+              <td>15.13</td>
+              <td>15.28</td>
+              <td style="color:#00c853;font-weight:bold">+0.15</td>
+              <td>Multiple strong regime x signal combinations confirmed</td>
+            </tr>
+            <tr>
+              <td>News Sentiment</td>
+              <td>14.70</td>
+              <td>14.42</td>
+              <td style="color:#d50000;font-weight:bold">-0.28</td>
+              <td>Dampened adjustment from PatternAnalyzer recommendations</td>
+            </tr>
+            <tr>
+              <td>Key Level</td>
+              <td>9.80</td>
+              <td>9.61</td>
+              <td style="color:#d50000;font-weight:bold">-0.19</td>
+              <td>Dampened adjustment from PatternAnalyzer recommendations</td>
+            </tr>
+            <tr>
+              <td>Volatility Pct</td>
+              <td>9.80</td>
+              <td>9.61</td>
+              <td style="color:#d50000;font-weight:bold">-0.19</td>
+              <td>Dampened adjustment from PatternAnalyzer recommendations</td>
+            </tr>
+            <tr>
+              <td>Spread Session</td>
+              <td>5.00</td>
+              <td>4.90</td>
+              <td style="color:#d50000;font-weight:bold">-0.10</td>
+              <td>Session win rates diverging (>30% spread)</td>
+            </tr>
+</table>
+
+<h2>8. Top & Bottom Setups</h2>
+<h3>Top Setups (by Profit Factor)</h3>
+<ul><li><strong>OB_RETEST</strong> -- WR=92% | PF=20.17 | n=13</li><li><strong>FVG_FILL</strong> -- WR=62% | PF=2.42 | n=8</li><li><strong>SD_BOUNCE</strong> -- WR=22% | PF=0.24 | n=9</li></ul>
+<h3>Worst Setups (by Profit Factor)</h3>
+<ul><li><strong>SD_BOUNCE</strong> -- WR=22% | PF=0.24 | n=9</li><li><strong>FVG_FILL</strong> -- WR=62% | PF=2.42 | n=8</li><li><strong>OB_RETEST</strong> -- WR=92% | PF=20.17 | n=13</li></ul>
+
+<h2>9. Recommendations</h2>
+<ul><li>OB_RETEST is the strongest signal type (PF=20.17, WR=92%). Prioritise this setup in trending conditions.</li><li>SD_BOUNCE is underperforming (PF=0.24). Consider raising confidence threshold for SD_BOUNCE setups or restricting to OVERLAP session only.</li><li>TRENDING regime strongly outperforms RANGING (PF 6.85 vs 0.24). Raise CONFIDENCE_EARLY_MODE threshold for RANGING trades.</li><li>OVERLAP session is performing well (WR=82%, PF=6.77). Bot is well-tuned for this session.</li><li>Confidence scoring is well-calibrated: win rate increases with confidence score. No threshold change needed.</li><li>Breakeven rule is adding value: avg P&L with BE = +$18.37, without BE = $-11.91. Keep the +1R breakeven trigger.</li><li>Trailing stop is outperforming fixed TP: avg P&L trailing = +$20.80, fixed TP = +$0.50. Trailing at +2R is justified.</li></ul>
+
+<p class="generated">Generated by ARCS-FX v1.0 | 2026-04-11 19:13 UTC</p>
+</body>
+</html>

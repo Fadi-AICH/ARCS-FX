@@ -1,0 +1,15 @@
+MetaTrader5
+Flask
+numpy
+pandas
+requests
+ta
+
+# Optional but recommended
+python-dotenv
+feedparser
+
+# Optional features
+# reportlab      # PDF weekly reports
+# transformers   # FinBERT news sentiment
+# torch          # required by transformers pipeline used in news engine
