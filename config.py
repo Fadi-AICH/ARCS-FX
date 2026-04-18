@@ -15,11 +15,12 @@ MT5_TIMEOUT_MS = 10_000          # ms to wait for MT5 to respond
 # ---------------------------------------------------------
 # TRADING PAIRS
 # ---------------------------------------------------------
-PAIRS = [
+FX_PAIRS = [
     "EURUSD", "GBPUSD", "AUDUSD",
     "USDJPY", "USDCHF", "USDCAD",
     "NZDUSD", "EURJPY",
 ]
+PAIRS = FX_PAIRS
 
 # ---------------------------------------------------------
 # TIMEFRAMES  (MetaTrader5 constants are imported at use)
@@ -92,10 +93,80 @@ MEAN_REVERSION_CORE_SESSIONS = {"LONDON", "NY", "OVERLAP"}
 MEAN_REVERSION_ASIAN_SYMBOLS = {"USDJPY", "EURJPY", "AUDUSD", "NZDUSD"}
 
 # ---------------------------------------------------------
+# INSTRUMENT PROFILES
+# ---------------------------------------------------------
+SYMBOL_PROFILES = {
+    "EURUSD": {
+        "asset_class": "forex",
+        "session_mode": "fx",
+        "news_mode": "forex_macro",
+        "spread_limit": SPREAD_LIMITS["EURUSD"],
+        "round_level_step": 0.0050,
+        "min_stop_units": 10.0,
+    },
+    "GBPUSD": {
+        "asset_class": "forex",
+        "session_mode": "fx",
+        "news_mode": "forex_macro",
+        "spread_limit": SPREAD_LIMITS["GBPUSD"],
+        "round_level_step": 0.0050,
+        "min_stop_units": 10.0,
+    },
+    "AUDUSD": {
+        "asset_class": "forex",
+        "session_mode": "fx",
+        "news_mode": "forex_macro",
+        "spread_limit": SPREAD_LIMITS["AUDUSD"],
+        "round_level_step": 0.0050,
+        "min_stop_units": 10.0,
+    },
+    "USDJPY": {
+        "asset_class": "forex",
+        "session_mode": "fx",
+        "news_mode": "forex_macro",
+        "spread_limit": SPREAD_LIMITS["USDJPY"],
+        "round_level_step": 0.50,
+        "min_stop_units": 10.0,
+    },
+    "USDCHF": {
+        "asset_class": "forex",
+        "session_mode": "fx",
+        "news_mode": "forex_macro",
+        "spread_limit": SPREAD_LIMITS["USDCHF"],
+        "round_level_step": 0.0050,
+        "min_stop_units": 10.0,
+    },
+    "USDCAD": {
+        "asset_class": "forex",
+        "session_mode": "fx",
+        "news_mode": "forex_macro",
+        "spread_limit": SPREAD_LIMITS["USDCAD"],
+        "round_level_step": 0.0050,
+        "min_stop_units": 10.0,
+    },
+    "NZDUSD": {
+        "asset_class": "forex",
+        "session_mode": "fx",
+        "news_mode": "forex_macro",
+        "spread_limit": SPREAD_LIMITS["NZDUSD"],
+        "round_level_step": 0.0050,
+        "min_stop_units": 10.0,
+    },
+    "EURJPY": {
+        "asset_class": "forex",
+        "session_mode": "fx",
+        "news_mode": "forex_macro",
+        "spread_limit": SPREAD_LIMITS["EURJPY"],
+        "round_level_step": 0.50,
+        "min_stop_units": 10.0,
+    },
+}
+
+# ---------------------------------------------------------
 # CONFIDENCE SCORE GATING
 # ---------------------------------------------------------
-CONFIDENCE_MIN          = 70    # minimum score to enter a trade
-CONFIDENCE_EARLY_MODE   = 75    # optional stricter threshold during cautious live-testing
+CONFIDENCE_MIN          = 72    # lowered from 76 after 2026-04-18 dry run (best signal only 69.5 under 76 floor)
+CONFIDENCE_EARLY_MODE   = 76    # optional stricter threshold during cautious live-testing
 LIVE_EARLY_MODE         = False # Phase 1 rebuild default: use normal mode until analytics stabilise
 
 # Component weights (must sum to 100)
@@ -175,3 +246,32 @@ WEEKLY_REPORT_HOUR_UTC = 22    # time (UTC) to generate weekly report
 # ---------------------------------------------------------
 MAIN_LOOP_INTERVAL_S   = 60    # main orchestrator tick (seconds)
 DATA_REFRESH_INTERVAL_S = 300  # how often to refresh OHLCV cache
+
+# ---------------------------------------------------------
+# EDGE STACK  (Phase 2: hedge-fund-grade filters)
+# ---------------------------------------------------------
+# Master switch -- if False every edge module is bypassed and the bot
+# reverts to pure confidence-score gating (the legacy behaviour).
+EDGE_STACK_ENABLED       = True
+
+# Per-edge master switches (disable an edge in isolation for AB testing)
+EDGE_MACRO_ANCHOR        = True
+EDGE_VOL_REGIME          = True
+EDGE_EVENT_FLOW          = True
+EDGE_COT_POSITIONING     = True   # requires cot_reports pkg; auto-disables if missing
+EDGE_CROSS_MOMENTUM      = True
+EDGE_CARRY_BASKET        = True
+EDGE_EXECUTION_COST      = True
+EDGE_SIGNAL_CALIBRATOR   = True   # requires 50+ closed trades; no-op until then
+
+# Macro anchor: strength above this BLOCKS a contradictory trade
+MACRO_VETO_STRENGTH      = 0.6
+
+# Inverse-vol sizing (vol_regime). When True, risk_manager takes
+# min(SL-based lots, inverse_vol_lots) -- caps oversizing in calm vol.
+USE_INVERSE_VOL_SIZING   = True
+DAILY_VOL_TARGET_PCT     = 0.35  # target daily P&L std per trade, % of balance
+
+# Signal calibrator: minimum P(win) to accept a trade once trained
+CALIBRATOR_MIN_PWIN      = 0.52
+CALIBRATOR_RETRAIN_H     = 24    # hours between retrains

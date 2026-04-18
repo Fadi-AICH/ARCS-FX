@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ARCS-CRYPTO</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+:root{
+  --bg:#070b12;--panel:#0f1520;--panel2:#121b28;--line:#223247;--text:#eef4ff;--muted:#89a0bb;
+  --teal:#34d3c4;--lime:#72db6c;--amber:#f0b24f;--red:#ff6a6a;--blue:#69a8ff;--violet:#a983ff;
+}
+*{box-sizing:border-box} body{margin:0;font-family:Inter,Segoe UI,sans-serif;background:
+radial-gradient(circle at 15% 0%, rgba(52,211,196,.14), transparent 28%),
+radial-gradient(circle at 100% 0%, rgba(105,168,255,.12), transparent 26%),
+linear-gradient(180deg,#060910,#070b12 34%,#08101a 100%);color:var(--text)}
+.wrap{max-width:1600px;margin:0 auto;padding:18px;display:grid;gap:16px}
+.hero{background:linear-gradient(135deg,rgba(10,18,29,.96),rgba(15,26,37,.94));border:1px solid rgba(255,255,255,.08);border-radius:22px;padding:24px 26px;display:flex;justify-content:space-between;align-items:flex-start;box-shadow:0 24px 80px rgba(0,0,0,.35)}
+.brand{font-size:30px;font-weight:900;letter-spacing:.06em;color:#8fd7ff}
+.sub{margin-top:6px;color:var(--muted);font-size:13px;max-width:700px}
+.hero-right{display:flex;gap:18px;align-items:center;color:var(--muted);font-size:12px}
+.badge{display:inline-flex;align-items:center;gap:8px;padding:6px 12px;border-radius:999px;border:1px solid rgba(114,219,108,.25);background:rgba(114,219,108,.1);color:var(--lime);font-weight:700}
+.dot{width:8px;height:8px;border-radius:50%;background:currentColor}
+.grid{display:grid;gap:14px}
+.kpis{grid-template-columns:repeat(6,1fr)}
+.panel{background:linear-gradient(180deg,rgba(15,21,32,.98),rgba(11,16,25,.98));border:1px solid rgba(255,255,255,.07);border-radius:18px;padding:16px 18px;box-shadow:0 16px 40px rgba(0,0,0,.22)}
+.label{font-size:11px;text-transform:uppercase;letter-spacing:.12em;color:var(--muted);margin-bottom:6px}
+.value{font-size:30px;font-weight:800}
+.subtle{font-size:12px;color:var(--muted)}
+.two{display:grid;grid-template-columns:2.1fr 1fr;gap:16px}
+.three{display:grid;grid-template-columns:1.2fr 1.1fr 1fr;gap:16px}
+.pairs{display:grid;grid-template-columns:repeat(6,1fr);gap:12px}
+.pair{padding:14px;border-radius:16px;background:linear-gradient(180deg,rgba(17,25,37,.98),rgba(10,15,24,.98));border:1px solid rgba(255,255,255,.06)}
+.pair h3{margin:0 0 8px;font-size:15px}
+.pair .ctx{font-size:12px;color:var(--muted);min-height:36px}
+.pair .state{display:inline-flex;padding:4px 8px;border-radius:999px;font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase}
+.range{background:rgba(105,168,255,.12);color:var(--blue)} .trend{background:rgba(114,219,108,.12);color:var(--lime)} .trans{background:rgba(240,178,79,.14);color:var(--amber)}
+.tape{display:grid;gap:10px}
+.row{display:grid;grid-template-columns:120px 100px 1fr 100px;gap:12px;padding:11px 0;border-top:1px solid rgba(255,255,255,.06)}
+.row:first-child{border-top:0}
+.good{color:var(--lime)} .bad{color:var(--red)} .warn{color:var(--amber)}
+canvas{width:100%!important;height:310px!important}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{text-align:left;padding:10px 8px;border-top:1px solid rgba(255,255,255,.06)}
+th{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em}
+.mono{font-variant-numeric:tabular-nums}
+@media (max-width:1200px){.kpis,.pairs,.three,.two{grid-template-columns:1fr 1fr}.hero{flex-direction:column;gap:16px}}
+@media (max-width:760px){.kpis,.pairs,.three,.two{grid-template-columns:1fr}.hero-right{flex-wrap:wrap}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <section class="hero">
+    <div>
+      <div class="brand">ARCS-CRYPTO</div>
+      <div class="sub">Weekend-only crypto action board. Built for fast M1 scalp rotations, reclaim bursts, and sweep reversals across the liveliest XM crypto pairs.</div>
+    </div>
+    <div class="hero-right">
+      <div class="badge"><span class="dot"></span><span id="run-state">LIVE</span></div>
+      <div>Mode: <strong>M1 Weekend</strong></div>
+      <div>Pairs: <strong id="pair-count">0</strong></div>
+      <div>Updated: <strong id="updated">--</strong></div>
+    </div>
+  </section>
+
+  <section class="grid kpis">
+    <div class="panel"><div class="label">Balance</div><div class="value mono" id="balance">$0</div></div>
+    <div class="panel"><div class="label">Equity</div><div class="value mono" id="equity">$0</div></div>
+    <div class="panel"><div class="label">Closed Trades</div><div class="value mono" id="closed">0</div></div>
+    <div class="panel"><div class="label">Win Rate</div><div class="value mono" id="winrate">0%</div></div>
+    <div class="panel"><div class="label">Total P&L</div><div class="value mono" id="pnl">$0</div></div>
+    <div class="panel"><div class="label">Open Trades</div><div class="value mono" id="open-count">0</div></div>
+  </section>
+
+  <section class="panel">
+    <div class="label">Pair Radar</div>
+    <div class="pairs" id="pairs"></div>
+  </section>
+
+  <section class="two">
+    <div class="panel">
+      <div class="label">Weekend Equity Trace</div>
+      <canvas id="equityChart"></canvas>
+    </div>
+    <div class="panel">
+      <div class="label">Opportunity Tape</div>
+      <div class="tape" id="tape"></div>
+    </div>
+  </section>
+
+  <section class="three">
+    <div class="panel">
+      <div class="label">Open Positions</div>
+      <div id="open-positions" class="subtle">No open positions</div>
+    </div>
+    <div class="panel">
+      <div class="label">Latest Decisions</div>
+      <div id="decisions" class="subtle">Waiting for fresh runtime state…</div>
+    </div>
+    <div class="panel">
+      <div class="label">Engine Notes</div>
+      <div class="subtle">Crypto-only stack. Forex assumptions intentionally removed. The working surface is tuned for fast weekend movement, not weekday macro calendars.</div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="label">Recent Trades</div>
+    <div style="overflow:auto">
+      <table>
+        <thead><tr><th>Symbol</th><th>Dir</th><th>Signal</th><th>Entry</th><th>Close</th><th>P&L</th><th>Result</th><th>Opened</th></tr></thead>
+        <tbody id="trades"></tbody>
+      </table>
+    </div>
+  </section>
+</div>
+<script>
+let chart;
+async function load(){
+  const [overviewResp, equityResp, tradesResp] = await Promise.all([
+    fetch('/api/overview'),
+    fetch('/api/equity'),
+    fetch('/api/trades')
+  ]);
+  const overview = await overviewResp.json();
+  const equity = await equityResp.json();
+  const trades = await tradesResp.json();
+
+  document.getElementById('balance').textContent = `$${(overview.account?.balance ?? 0).toFixed(2)}`;
+  document.getElementById('equity').textContent = `$${(overview.account?.equity ?? 0).toFixed(2)}`;
+  document.getElementById('closed').textContent = `${overview.summary?.total ?? 0}`;
+  document.getElementById('winrate').textContent = `${(((overview.summary?.win_rate ?? 0) * 100)).toFixed(1)}%`;
+  document.getElementById('pnl').textContent = `${(overview.summary?.total_pnl ?? 0) >= 0 ? '+' : ''}$${(overview.summary?.total_pnl ?? 0).toFixed(2)}`;
+  document.getElementById('open-count').textContent = `${(overview.open_positions || []).length}`;
+  document.getElementById('pair-count').textContent = `${Object.keys(overview.pair_states || {}).length}`;
+  document.getElementById('updated').textContent = overview.timestamp ? new Date(overview.timestamp).toLocaleTimeString() : '--';
+  document.getElementById('run-state').textContent = overview.bot_running ? 'LIVE' : 'IDLE';
+
+  const pairWrap = document.getElementById('pairs');
+  pairWrap.innerHTML = '';
+  for(const [symbol, state] of Object.entries(overview.pair_states || {})){
+    const regime = String(state.context?.m15_regime || 'RANGE').toLowerCase();
+    const cls = regime.includes('trend') ? 'trend' : regime.includes('trans') ? 'trans' : 'range';
+    const card = document.createElement('div');
+    card.className = 'pair';
+    card.innerHTML = `<h3>${symbol}</h3>
+      <div class="state ${cls}">${state.context?.m15_regime || 'RANGE'} / ${state.context?.m15_bias || 'NEUTRAL'}</div>
+      <div class="ctx">${state.context?.summary || 'Waiting for context'}</div>
+      <div class="subtle">Spread ${state.spread_units ?? '--'} | ${state.last_signal || 'No signal yet'}</div>`;
+    pairWrap.appendChild(card);
+  }
+
+  const tape = document.getElementById('tape');
+  tape.innerHTML = '';
+  for(const [symbol, state] of Object.entries(overview.pair_states || {})){
+    const tone = state.last_signal?.includes('SCALP') ? 'good' : 'subtle';
+    const row = document.createElement('div');
+    row.className = 'row';
+    row.innerHTML = `<div><strong>${symbol}</strong></div><div class="${tone}">${state.last_signal || 'NO_SETUP'}</div><div>${state.context?.summary || '--'}</div><div class="mono">${state.spread_units ?? '--'}</div>`;
+    tape.appendChild(row);
+  }
+
+  document.getElementById('open-positions').innerHTML = (overview.open_positions || []).length
+    ? (overview.open_positions || []).map(p => `<div class="row"><div><strong>${p.symbol}</strong></div><div>${p.direction}</div><div>${p.signal_type}</div><div class="mono">${p.lots}</div></div>`).join('')
+    : 'No open positions';
+
+  document.getElementById('decisions').innerHTML = Object.entries(overview.pair_states || {}).slice(0,6).map(([symbol, state]) =>
+    `<div style="padding:8px 0;border-top:1px solid rgba(255,255,255,.06)"><strong>${symbol}</strong> · ${state.last_reason || 'Monitoring'}</div>`
+  ).join('') || 'Waiting for fresh runtime state…';
+
+  const tbody = document.getElementById('trades');
+  tbody.innerHTML = '';
+  for(const trade of trades){
+    const tr = document.createElement('tr');
+    const pnl = Number(trade.pnl_usd || 0);
+    tr.innerHTML = `<td>${trade.symbol}</td><td>${trade.direction}</td><td>${trade.signal_type}</td><td class="mono">${Number(trade.entry_price || 0).toFixed(5)}</td><td class="mono">${trade.close_price == null ? '--' : Number(trade.close_price).toFixed(5)}</td><td class="${pnl >= 0 ? 'good' : 'bad'} mono">${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}</td><td>${trade.result || 'OPEN'}</td><td>${trade.opened_at_utc ? new Date(trade.opened_at_utc).toLocaleString() : '--'}</td>`;
+    tbody.appendChild(tr);
+  }
+
+  const ctx = document.getElementById('equityChart').getContext('2d');
+  if(chart) chart.destroy();
+  chart = new Chart(ctx, {
+    type:'line',
+    data:{labels:equity.map(p => p.x), datasets:[{label:'Cumulative P&L', data:equity.map(p=>p.y), borderColor:'#34d3c4', backgroundColor:'rgba(52,211,196,.12)', fill:true, tension:.28, pointRadius:2}]},
+    options:{plugins:{legend:{display:false}}, scales:{x:{display:false}, y:{ticks:{color:'#89a0bb'}, grid:{color:'rgba(255,255,255,.06)'}}}}
+  });
+}
+load();
+setInterval(load, 15000);
+</script>
+</body>
+</html>
+

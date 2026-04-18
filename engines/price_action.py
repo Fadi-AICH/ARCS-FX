@@ -71,6 +71,7 @@ from config import (
 )
 from engines.scalp_engine import scalp_session_allowed, mean_reversion_session_allowed, session_label
 from engines.swing_engine import breakout_allowed, reversion_allowed
+from core.instruments import round_level_step
 
 logger = logging.getLogger(__name__)
 
@@ -218,7 +219,7 @@ def evaluate(
     # -- Step 2: Find key SMC elements on H1 --------------
     order_blocks  = _find_order_blocks(h1_df, structure)
     fvgs          = _find_fvgs(h1_df)
-    sweeps        = _find_liquidity_sweeps(h1_df, structure)
+    sweeps        = _find_liquidity_sweeps(symbol, h1_df, structure)
     sd_zones      = _find_sd_zones(h1_df)
     key_levels    = _find_key_levels(h1_df, symbol)
 
@@ -259,6 +260,7 @@ def evaluate(
                 signal = _evaluate_swing_breakout(
                     symbol, h1_df, m5_df, key_levels,
                     direction_bias, pattern, pattern_strength, atr, current_ts,
+                    regime=regime,
                 )
     else:
         signal = _evaluate_ranging(
@@ -738,6 +740,7 @@ def _is_fvg_filled(
 # ---------------------------------------------------------
 
 def _find_liquidity_sweeps(
+    symbol: str,
     df: pd.DataFrame,
     structure: MarketStructure,
 ) -> list[LiquiditySweep]:
@@ -756,13 +759,14 @@ def _find_liquidity_sweeps(
     """
     sweeps: list[LiquiditySweep] = []
     n = len(df)
+    sweep_buffer = LIQUIDITY_SWEEP_BUFFER
 
     for swing in structure.swing_highs[-10:]:
         level = swing.price
         # Look for candles after the swing that spike above but close below
         for i in range(swing.index + 1, min(swing.index + 20, n)):
             candle = df.iloc[i]
-            if candle["high"] > level + LIQUIDITY_SWEEP_BUFFER:
+            if candle["high"] > level + sweep_buffer:
                 # Spike above — is there a bearish close below the level?
                 reversal = candle["close"] < level
                 sweeps.append(LiquiditySweep(
@@ -777,7 +781,7 @@ def _find_liquidity_sweeps(
         level = swing.price
         for i in range(swing.index + 1, min(swing.index + 20, n)):
             candle = df.iloc[i]
-            if candle["low"] < level - LIQUIDITY_SWEEP_BUFFER:
+            if candle["low"] < level - sweep_buffer:
                 reversal = candle["close"] > level
                 sweeps.append(LiquiditySweep(
                     time=df.index[i],
@@ -925,10 +929,10 @@ def _find_key_levels(df: pd.DataFrame, symbol: str) -> list[float]:
         levels.append(float(prev_week["high"].max()))
         levels.append(float(prev_week["low"].min()))
 
-    # Round numbers: every 0.0050 for standard pairs, every 0.50 for JPY pairs
+    # Round numbers come from the instrument profile so crypto can use wider
+    # practical landmarks without changing the FX defaults.
     current_price = float(df["close"].iloc[-1])
-    is_jpy = "JPY" in symbol
-    pip_step = 0.50 if is_jpy else 0.0050
+    pip_step = round_level_step(symbol)
 
     # Generate round levels within ±1% of current price
     lower = current_price * 0.99
@@ -1526,6 +1530,11 @@ def _evaluate_scalp_sweep_reversal(
 
     # Bullish reclaim after sell-side sweep
     if float(last["low"]) < recent_m15_low and current_price > recent_m15_low and pattern in bullish_patterns:
+        # Forensic gate: SCALP_SWEEP_REVERSAL was 36% WR / -$54.81 across 11 trades
+        # because it fired at random locations. Require the reclaim to happen at
+        # a meaningful structural level.
+        if klp < 0.40:
+            return _empty_signal()
         entry = current_price
         sl = float(last["low"]) - atr * 0.10
         tp = max(entry + atr * 1.6, recent_m15_high - atr * 0.10)
@@ -1564,6 +1573,8 @@ def _evaluate_scalp_sweep_reversal(
 
     # Bearish reclaim after buy-side sweep
     if float(last["high"]) > recent_m15_high and current_price < recent_m15_high and pattern in bearish_patterns:
+        if klp < 0.40:
+            return _empty_signal()
         entry = current_price
         sl = float(last["high"]) + atr * 0.10
         tp = min(entry - atr * 1.6, recent_m15_low + atr * 0.10)
@@ -1613,6 +1624,7 @@ def _evaluate_swing_breakout(
     pattern_strength: float,
     atr: float,
     current_ts: datetime,
+    regime: str = "",
 ) -> PriceActionSignal:
     """
     Higher-timeframe breakout continuation.
@@ -1622,6 +1634,10 @@ def _evaluate_swing_breakout(
       a recent range boundary and M5 confirms with a directional candle.
     """
     if h1_df is None or m5_df is None or len(h1_df) < 40 or direction_bias not in {"BULLISH", "BEARISH"}:
+        return _empty_signal()
+    # 0/3 win rate in TRENDING_EXTENDED (USDCAD shorts, -$62.92): breaking out in
+    # the direction of an exhausted trend = fading the snapback. Block here.
+    if regime == "TRENDING_EXTENDED":
         return _empty_signal()
 
     bullish_patterns = {"BULLISH_ENGULFING", "PIN_BAR_BULLISH", "MORNING_STAR"}

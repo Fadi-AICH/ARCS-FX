@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>ARCS-PROP · Challenge Dashboard</title>
+<style>
+  :root {
+    --bg:        #0e1014;
+    --card:      #171a21;
+    --card-2:    #1e222c;
+    --text:      #e5e7eb;
+    --muted:     #9aa0ac;
+    --good:      #22c55e;
+    --warn:      #f59e0b;
+    --bad:       #ef4444;
+    --accent:    #60a5fa;
+    --border:    #2a2f3a;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: "Segoe UI", system-ui, sans-serif;
+    background: var(--bg); color: var(--text);
+  }
+  header {
+    padding: 16px 28px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 16px; justify-content: space-between;
+    background: #0b0d11;
+  }
+  header h1 { margin: 0; font-size: 18px; letter-spacing: 0.5px; }
+  .phase-pill {
+    padding: 4px 10px; border-radius: 12px; font-size: 12px; font-weight: 600;
+    background: #1f2937; color: var(--accent);
+  }
+  .phase-pill.passed { background: #064e3b; color: #6ee7b7; }
+  .phase-pill.halted { background: #450a0a; color: #fca5a5; }
+  main {
+    display: grid; grid-template-columns: 1.2fr 1fr 1fr; gap: 16px;
+    padding: 20px 28px;
+  }
+  @media (max-width: 1100px) { main { grid-template-columns: 1fr; } }
+  .card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 10px; padding: 16px 18px;
+  }
+  .card h2 { margin: 0 0 12px; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; }
+  .kv { display: flex; justify-content: space-between; margin: 6px 0; font-size: 14px; }
+  .kv .v { font-variant-numeric: tabular-nums; font-weight: 600; }
+  .kv .v.pos { color: var(--good); }
+  .kv .v.neg { color: var(--bad); }
+  .big { font-size: 26px; font-weight: 700; }
+  .bar {
+    height: 10px; background: var(--card-2); border-radius: 6px; overflow: hidden; margin: 6px 0 12px;
+  }
+  .bar > span { display: block; height: 100%; background: var(--accent); }
+  .bar.warn > span { background: var(--warn); }
+  .bar.bad  > span { background: var(--bad);  }
+  .bar.good > span { background: var(--good); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; text-transform: uppercase; }
+  .halt-btn {
+    background: #b91c1c; border: none; color: #fff; padding: 10px 16px;
+    border-radius: 8px; font-weight: 700; cursor: pointer; letter-spacing: 0.5px;
+  }
+  .halt-btn:hover { background: #dc2626; }
+  .halt-btn:disabled { background: #4b5563; cursor: not-allowed; }
+  .fresh-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; margin-right: 6px; }
+  .fresh-dot.on  { background: var(--good); box-shadow: 0 0 8px var(--good); }
+  .fresh-dot.off { background: var(--bad); }
+  .footer-note { color: var(--muted); font-size: 12px; padding: 6px 28px 24px; }
+  .tier-badge {
+    display: inline-block; padding: 4px 10px; border-radius: 6px;
+    background: var(--card-2); font-size: 12px; font-weight: 600; color: var(--accent);
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>ARCS-PROP · FundedNext Stellar Lite</h1>
+    <div style="color: var(--muted); font-size: 12px; margin-top: 4px;">
+      <span id="fresh-dot" class="fresh-dot off"></span>
+      <span id="fresh-text">initialising…</span>
+      &nbsp;·&nbsp; <span id="phase-pill" class="phase-pill">PHASE_1</span>
+      &nbsp;·&nbsp; Risk tier: <span id="risk-tier" class="tier-badge">—</span>
+      &nbsp;·&nbsp; Next-trade risk: <b id="risk-pct">—</b>%
+    </div>
+  </div>
+  <div>
+    <button id="halt-btn" class="halt-btn">⛔ HALT CHALLENGE</button>
+  </div>
+</header>
+
+<main>
+  <!-- Equity + distances -->
+  <section class="card">
+    <h2>Equity</h2>
+    <div class="kv"><span>Current equity</span><span class="v big" id="equity">—</span></div>
+    <div class="kv"><span>Peak equity</span><span class="v" id="peak">—</span></div>
+    <div class="kv"><span>Phase start</span><span class="v" id="phase-start">—</span></div>
+    <div class="kv"><span>Day start</span><span class="v" id="day-start">—</span></div>
+
+    <h2 style="margin-top: 20px;">Phase target (+<span id="target-pct">—</span>%)</h2>
+    <div class="bar good"><span id="target-bar" style="width:0%"></span></div>
+    <div class="kv"><span>Phase P&amp;L</span><span class="v" id="phase-gain">—</span></div>
+    <div class="kv"><span>To target</span><span class="v" id="to-target">—</span></div>
+
+    <h2 style="margin-top: 20px;">Daily loss buffers</h2>
+    <div class="kv"><span>Day P&amp;L</span><span class="v" id="day-pnl">—</span></div>
+    <div class="kv"><span>To internal cap (<span id="int-daily-cap">2.5</span>%)</span><span class="v" id="int-daily-rem">—</span></div>
+    <div class="kv"><span>To firm cap (<span id="firm-daily-cap">5.0</span>%)</span><span class="v" id="firm-daily-rem">—</span></div>
+
+    <h2 style="margin-top: 20px;">Max-DD buffers (from peak)</h2>
+    <div class="kv"><span>From peak</span><span class="v" id="from-peak">—</span></div>
+    <div class="kv"><span>To internal cap (<span id="int-dd-cap">6</span>%)</span><span class="v" id="int-dd-rem">—</span></div>
+    <div class="kv"><span>To firm cap (<span id="firm-dd-cap">10</span>%)</span><span class="v" id="firm-dd-rem">—</span></div>
+  </section>
+
+  <!-- Today + counters -->
+  <section class="card">
+    <h2>Today</h2>
+    <div class="kv"><span>Trades taken</span><span class="v" id="trades-today">—</span></div>
+    <div class="kv"><span>Trades remaining</span><span class="v" id="trades-left">—</span></div>
+    <div class="kv"><span>Consecutive losses</span><span class="v" id="cons-losses">—</span></div>
+    <div class="kv"><span>Total trades</span><span class="v" id="total-trades">—</span></div>
+
+    <h2 style="margin-top: 20px;">State</h2>
+    <div class="kv"><span>Pause reason</span><span class="v" id="pause-reason">—</span></div>
+    <div class="kv"><span>Cooldown until</span><span class="v" id="cooldown-until">—</span></div>
+    <div class="kv"><span>Halt reason</span><span class="v" id="halt-reason">—</span></div>
+    <div class="kv"><span>MT5 login</span><span class="v" id="login">—</span></div>
+  </section>
+
+  <!-- Open positions -->
+  <section class="card">
+    <h2>Open positions</h2>
+    <table id="positions-tbl">
+      <thead>
+        <tr><th>Sym</th><th>Dir</th><th>Lots</th><th>Entry</th><th>SL</th><th>TP</th><th>P&amp;L</th></tr>
+      </thead>
+      <tbody id="positions-body">
+        <tr><td colspan="7" style="color: var(--muted); text-align: center; padding: 16px;">no open positions</td></tr>
+      </tbody>
+    </table>
+
+    <h2 style="margin-top: 20px;">Regime snapshot</h2>
+    <table>
+      <thead>
+        <tr><th>Sym</th><th>Regime</th><th>Conf</th><th>ADX</th><th>ATR%</th></tr>
+      </thead>
+      <tbody id="regimes-body">
+        <tr><td colspan="5" style="color: var(--muted); text-align: center; padding: 16px;">—</td></tr>
+      </tbody>
+    </table>
+  </section>
+</main>
+
+<div class="footer-note">
+  Auto-refresh every 5s &middot; Port <b id="port-label"></b> &middot;
+  <span id="halt-flag-note"></span>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const fmtUSD = (n) => n == null ? "—" : `$${Number(n).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+const fmtPct = (n) => n == null ? "—" : `${Number(n).toFixed(2)}%`;
+
+function signed(v) {
+  if (v == null || Number.isNaN(v)) return "—";
+  const n = Number(v);
+  const s = (n >= 0 ? "+" : "") + n.toFixed(2) + "%";
+  return `<span class="${n >= 0 ? 'pos' : 'neg'}">${s}</span>`;
+}
+
+async function refresh() {
+  try {
+    const res = await fetch("/api/prop_overview", { cache: "no-store" });
+    const d   = await res.json();
+    const s   = d.status || {};
+
+    $("fresh-dot").className = "fresh-dot " + (d.fresh ? "on" : "off");
+    $("fresh-text").textContent = d.fresh ? "live" : "stale (bot not writing status)";
+
+    // Phase pill
+    const phase = s.phase || "PHASE_1";
+    const pill = $("phase-pill");
+    pill.textContent = phase;
+    pill.className = "phase-pill" + (phase === "PASSED" ? " passed" : phase === "HALTED" ? " halted" : "");
+
+    // Risk readout
+    $("risk-tier").textContent = s.risk_tier || "—";
+    $("risk-pct").textContent  = (s.risk_pct == null) ? "—" : Number(s.risk_pct).toFixed(2);
+
+    // Equity block
+    const acc = s.account || {};
+    $("equity").textContent      = fmtUSD(acc.equity);
+    $("peak").textContent        = fmtUSD(s.peak_equity);
+    $("phase-start").textContent = fmtUSD(s.phase_start_balance);
+    $("day-start").textContent   = fmtUSD(s.day_start_balance);
+
+    // Phase target
+    const targetPct = s.phase_target_pct ?? d.internal.phase_1_target_pct;
+    $("target-pct").textContent = Number(targetPct).toFixed(1);
+    const phaseGain = Number(s.phase_gain_pct || 0);
+    const pctOfTarget = Math.max(0, Math.min(100, (phaseGain / targetPct) * 100));
+    $("target-bar").style.width = pctOfTarget + "%";
+    $("phase-gain").innerHTML = signed(phaseGain);
+    $("to-target").innerHTML  = signed(d.distances.phase_target_remaining_pct);
+
+    // Daily buffers
+    $("int-daily-cap").textContent  = d.internal.daily_loss_cap_pct;
+    $("firm-daily-cap").textContent = d.firm.daily_loss_cap_pct;
+    $("day-pnl").innerHTML       = signed(s.day_pnl_pct);
+    $("int-daily-rem").innerHTML  = signed(d.distances.daily_internal_remaining_pct);
+    $("firm-daily-rem").innerHTML = signed(d.distances.daily_firm_remaining_pct);
+
+    // DD buffers
+    $("int-dd-cap").textContent  = d.internal.max_drawdown_cap_pct;
+    $("firm-dd-cap").textContent = d.firm.max_drawdown_cap_pct;
+    $("from-peak").innerHTML   = signed(s.from_peak_pct);
+    $("int-dd-rem").innerHTML  = signed(d.distances.max_dd_internal_remaining_pct);
+    $("firm-dd-rem").innerHTML = signed(d.distances.max_dd_firm_remaining_pct);
+
+    // Today
+    const dailyCap = d.internal.max_daily_trades;
+    $("trades-today").textContent = s.daily_trades_count ?? "—";
+    $("trades-left").textContent  = (s.daily_trades_count != null) ? Math.max(0, dailyCap - s.daily_trades_count) : "—";
+    $("cons-losses").textContent  = s.consecutive_losses ?? "—";
+    $("total-trades").textContent = s.total_trades ?? "—";
+
+    // State
+    $("pause-reason").textContent    = s.pause_reason || "—";
+    $("cooldown-until").textContent  = s.cooldown_until || "—";
+    $("halt-reason").textContent     = s.halt_reason   || "—";
+    $("login").textContent           = acc.login || "—";
+
+    // Positions
+    const pos = s.open_positions || [];
+    const pb = $("positions-body");
+    if (!pos.length) {
+      pb.innerHTML = `<tr><td colspan="7" style="color: var(--muted); text-align: center; padding: 16px;">no open positions</td></tr>`;
+    } else {
+      pb.innerHTML = pos.map(p => `
+        <tr>
+          <td>${p.symbol}</td>
+          <td>${p.direction}</td>
+          <td>${p.lots}</td>
+          <td>${p.entry_price}</td>
+          <td>${p.sl_price}</td>
+          <td>${p.tp_price}</td>
+          <td class="${(p.pnl_usd >= 0) ? 'pos' : 'neg'}">${fmtUSD(p.pnl_usd)}</td>
+        </tr>`).join("");
+    }
+
+    // Regimes
+    const rmap = s.regimes || {};
+    const rb = $("regimes-body");
+    const keys = Object.keys(rmap);
+    if (!keys.length) {
+      rb.innerHTML = `<tr><td colspan="5" style="color: var(--muted); text-align: center; padding: 16px;">—</td></tr>`;
+    } else {
+      rb.innerHTML = keys.map(k => {
+        const r = rmap[k];
+        return `<tr>
+          <td>${k}</td><td>${r.regime}</td><td>${r.confidence}%</td>
+          <td>${r.adx}</td><td>${r.atr_pct}</td>
+        </tr>`;
+      }).join("");
+    }
+
+    // Halt flag note
+    $("halt-flag-note").textContent = d.halt_flag_present
+      ? "HALT flag present — bot will stop next tick"
+      : "";
+  } catch (e) {
+    $("fresh-dot").className = "fresh-dot off";
+    $("fresh-text").textContent = "dashboard offline";
+  }
+}
+
+async function onHalt() {
+  if (!confirm("Flatten all positions and halt the challenge?\nThis sets a flag the bot detects on its next tick.")) return;
+  const r = await fetch("/api/halt", { method: "POST" });
+  const j = await r.json();
+  if (j.ok) {
+    alert("HALT flag set. Bot will flatten and stop shortly.");
+  } else {
+    alert("Failed: " + (j.error || "unknown"));
+  }
+  refresh();
+}
+
+$("halt-btn").addEventListener("click", onHalt);
+$("port-label").textContent = location.port;
+
+refresh();
+setInterval(refresh, 5000);
+</script>
+</body>
+</html>

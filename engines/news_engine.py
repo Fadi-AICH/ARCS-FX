@@ -51,6 +51,7 @@ from config import (
     HIGH_IMPACT_KEYWORDS, FINBERT_MODEL,
     NEWS_SENTIMENT_NEUTRAL_BAND, FOREXFACTORY_URL,
 )
+from core.instruments import news_mode
 
 logger = logging.getLogger(__name__)
 
@@ -290,6 +291,29 @@ def evaluate(
     """
     if now_utc is None:
         now_utc = datetime.now(timezone.utc)
+
+    mode = news_mode(symbol)
+    if mode == "crypto_light":
+        result = NewsResult(
+            is_blackout=False,
+            blackout_reason="",
+            minutes_to_next_event=None,
+            next_event=None,
+            sentiment_score=0.0,
+            sentiment_label="NEUTRAL",
+            sentiment_confidence=0.0,
+            active_events=[],
+            recent_headlines=[],
+            source_quality="PARTIAL",
+            details={
+                "news_mode": mode,
+                "total_events_fetched": 0,
+                "headlines_scored": 0,
+                "finbert_available": _finbert_available,
+            },
+        )
+        logger.info("[%s] %s", symbol, result)
+        return result
 
     currencies = CURRENCY_MAP.get(symbol, ["USD"])
 

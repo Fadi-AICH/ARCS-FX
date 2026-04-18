@@ -46,7 +46,10 @@ from config import (
     PAIRS, TF_H1, TF_M15, TF_M5,
     REGIME_CHAOTIC, REGIME_QUIET, SESSIONS, LIVE_EARLY_MODE,
     WEEKLY_REPORT_DAY, WEEKLY_REPORT_HOUR_UTC,
+    CONFIDENCE_MIN, EDGE_STACK_ENABLED, MACRO_VETO_STRENGTH,
+    USE_INVERSE_VOL_SIZING, DAILY_VOL_TARGET_PCT,
 )
+from core.instruments import distance_in_units, price_unit
 
 # Core
 from core.mt5_connection import connect, disconnect, is_connected, reconnect
@@ -57,6 +60,9 @@ from core.regime_detector import detect_multi_tf
 from engines import price_action
 from engines.news_engine import evaluate as news_evaluate
 from engines.confidence_score import compute as confidence_compute
+
+# Edge stack (Phase 2 -- hedge-fund-style filters)
+from engines import meta_filter, cross_momentum, macro_anchor, vol_regime
 
 # Risk
 from risk.risk_manager import RiskManager, AccountSnapshot
@@ -274,6 +280,11 @@ _ohlcv_cache: dict = {}            # key: (symbol, tf) -> pd.DataFrame
 _cache_last_refresh: float = 0.0   # time.monotonic() of last refresh
 _regime_cache: dict = {}           # symbol -> regime summary dict for dashboard
 _gate_stats: dict = {}
+_last_signal: dict = {}            # symbol -> (direction, entry, sl, signal_type) dedup key
+_xmom_cache: dict = {               # cross-sectional momentum snapshot per tick
+    "result": None,
+    "built_at": 0.0,
+}
 
 
 def _new_gate_stats(now_utc: datetime) -> dict:
@@ -337,6 +348,7 @@ def _refresh_ohlcv_if_stale() -> None:
                 logger.warning("OHLCV unavailable: %s %s -- skipped.", symbol, tf)
 
     _cache_last_refresh = now
+    _last_signal.clear()   # new candles → allow fresh signal evaluation
     logger.info("OHLCV cache refresh complete: %d/%d timeframes loaded.",
                 fetched, len(PAIRS) * 3)
 
@@ -372,7 +384,7 @@ def _get_account_snapshot() -> Optional[AccountSnapshot]:
 # Session helper
 # ---------------------------------------------------------------------------
 
-def _current_session(now_utc: datetime) -> str:
+def _current_session(now_utc: datetime, symbol: Optional[str] = None) -> str:
     """
     Return the trading session name for the given UTC time.
 
@@ -595,6 +607,7 @@ def _process_pair(
     risk_manager: RiskManager,
     order_manager: OrderManager,
     trade_logger: TradeLogger,
+    xmom_result=None,
 ) -> None:
     """
     Full signal evaluation for one pair on one tick.
@@ -694,8 +707,28 @@ def _process_pair(
 
     if not pa_signal.has_signal:
         _gate_bump(symbol, "pa_no_signal", f"{regime_h1.regime} regime produced no PA setup")
+        _last_signal.pop(symbol, None)   # clear stale dedup key when no signal
         logger.debug("[%s] No PA signal.", symbol)
         return
+
+    # -- Signal deduplication --------------------------------------------------
+    # Forensics (2026-04-15 21:02-21:05): NZDUSD opened 3 positions in 3 minutes
+    # because the prior pip-rounded dedup key shifted as price drifted by 1 pip.
+    # New rule: same setup cannot re-fire within the same H1 candle period.
+    # Key = (direction, signal_type, h1_candle_open_ts) — locks out the entire
+    # H1 bar regardless of intra-bar price wiggle.
+    h1_bar_ts = ""
+    try:
+        h1_bar_ts = str(h1_df.index[-1]) if h1_df is not None and len(h1_df) > 0 else ""
+    except Exception:
+        pass
+    sig_key = (pa_signal.direction, pa_signal.signal_type, h1_bar_ts)
+    prev_key = _last_signal.get(symbol)
+    if prev_key == sig_key:
+        _gate_bump(symbol, "pa_no_signal", "Duplicate signal (same H1 bar, already evaluated)")
+        logger.debug("[%s] Duplicate PA signal — skipping.", symbol)
+        return
+    _last_signal[symbol] = sig_key
 
     logger.info("[%s] PA signal: %s %s | entry=%.5f sl=%.5f tp=%.5f R=%.1f",
                 symbol, pa_signal.direction, pa_signal.signal_type,
@@ -724,6 +757,41 @@ def _process_pair(
         _gate_bump(symbol, "confidence_blocked", conf_result.skip_reason)
         return
 
+    # -- Gate 6b: Meta-filter edge stack -----------------------------------
+    # Stacks macro anchor, vol regime, event flow, COT, x-sectional momentum,
+    # carry, and execution cost into a single allow/deny decision.
+    # Disabled via EDGE_STACK_ENABLED=False in config.
+    final_score = conf_result.score
+    if EDGE_STACK_ENABLED:
+        tp_pips = distance_in_units(symbol, abs(pa_signal.tp_price - pa_signal.entry_price))
+        sl_pips = distance_in_units(symbol, abs(pa_signal.entry_price - pa_signal.sl_price))
+        try:
+            meta = meta_filter.evaluate_trade(
+                pair             = symbol,
+                trade_direction  = pa_signal.direction,
+                base_score       = conf_result.score,
+                h1_df            = h1_df,
+                tp_pips          = tp_pips,
+                sl_pips          = sl_pips,
+                live_spread_pips = spread_pips,
+                xmom_result      = xmom_result,
+                fomc_today       = news_result.is_blackout and "FOMC" in (news_result.blackout_reason or "").upper(),
+                now_utc          = now_utc,
+                confidence_min   = CONFIDENCE_MIN,
+                macro_veto_strength = MACRO_VETO_STRENGTH,
+            )
+        except Exception as exc:
+            logger.exception("[%s] meta_filter error (non-fatal): %s", symbol, exc)
+            meta = None
+
+        if meta is not None:
+            if not meta.allowed:
+                reason = "; ".join(meta.vetoes) if meta.vetoes else f"final={meta.final_score:.1f}"
+                _gate_bump(symbol, "confidence_blocked", f"edge-stack: {reason}")
+                logger.info("[%s] Edge-stack DENY: %s", symbol, reason)
+                return
+            final_score = meta.final_score
+
     # -- Gate 7: Risk evaluation -------------------------------------------
     account = _get_account_snapshot()
     if account is None:
@@ -731,6 +799,25 @@ def _process_pair(
         return
 
     open_positions = order_manager.get_open_positions()
+
+    # Inverse-vol sizing cap (AQR-style vol targeting).
+    # Never increases risk -- only caps lots in calm vol to prevent the
+    # SL-based sizing from producing oversized positions.
+    max_lots_cap = 0.0
+    if EDGE_STACK_ENABLED and USE_INVERSE_VOL_SIZING:
+        try:
+            vr = vol_regime.classify(symbol, h1_df)
+            if vr.daily_range_pips > 0:
+                inv_lots, _ = vol_regime.inverse_vol_lots(
+                    pair=symbol,
+                    balance_usd=account.balance,
+                    entry_price=pa_signal.entry_price,
+                    daily_range_pips=vr.daily_range_pips,
+                    target_daily_vol_pct=DAILY_VOL_TARGET_PCT,
+                )
+                max_lots_cap = inv_lots
+        except Exception as exc:
+            logger.debug("[%s] inverse-vol cap skipped: %s", symbol, exc)
 
     try:
         risk_result = risk_manager.evaluate_trade(
@@ -740,6 +827,7 @@ def _process_pair(
             sl_price       = pa_signal.sl_price,
             account        = account,
             open_positions = open_positions,
+            max_lots_cap   = max_lots_cap,
         )
     except Exception as exc:
         logger.exception("[%s] Risk evaluation error: %s", symbol, exc)
@@ -751,7 +839,7 @@ def _process_pair(
         return
 
     # -- Gate 8: Build TradeIntent and open trade --------------------------
-    session = _current_session(now_utc)
+    session = _current_session(now_utc, symbol)
 
     intent = TradeIntent(
         symbol               = symbol,
@@ -762,7 +850,7 @@ def _process_pair(
         signal_type          = pa_signal.signal_type,
         pattern              = pa_signal.pattern,
         r_ratio              = pa_signal.r_ratio,
-        confidence           = conf_result.score,
+        confidence           = final_score,
         regime               = regime_h1.regime,
         risk_check           = risk_result,
         session              = session,
@@ -781,10 +869,10 @@ def _process_pair(
 
     logger.info(
         "[%s] All gates PASSED. Opening %s trade. "
-        "Lots=%.2f Conf=%.1f Session=%s Spread=%.1f",
+        "Lots=%.2f Conf=%.1f (base=%.1f) Session=%s Spread=%.1f",
         symbol, pa_signal.direction,
         risk_result.position_size_lots,
-        conf_result.score, session, spread_pips,
+        final_score, conf_result.score, session, spread_pips,
     )
 
     try:
@@ -837,7 +925,22 @@ def _tick(
     except Exception as exc:
         logger.exception("manage_open_positions() error: %s", exc)
 
-    # -- 4. Per-pair signal chain ------------------------------------------
+    # -- 4. Build cross-sectional momentum snapshot (once per tick) --------
+    xmom_result = None
+    if EDGE_STACK_ENABLED:
+        try:
+            h1_by_pair = {
+                sym: _ohlcv_cache.get((sym, TF_H1))
+                for sym in PAIRS
+                if _ohlcv_cache.get((sym, TF_H1)) is not None
+            }
+            xmom_result = cross_momentum.evaluate_universe(h1_by_pair)
+            _xmom_cache["result"] = xmom_result
+            _xmom_cache["built_at"] = time.monotonic()
+        except Exception as exc:
+            logger.warning("cross_momentum failed (non-fatal): %s", exc)
+
+    # -- 5. Per-pair signal chain ------------------------------------------
     for symbol in PAIRS:
         try:
             _process_pair(
@@ -846,6 +949,7 @@ def _tick(
                 risk_manager  = risk_manager,
                 order_manager = order_manager,
                 trade_logger  = trade_logger,
+                xmom_result   = xmom_result,
             )
         except Exception as exc:
             logger.exception("[%s] Unhandled error in _process_pair: %s", symbol, exc)
@@ -914,6 +1018,13 @@ def run() -> None:
     report_gen    = ReportGenerator()   # uses default DB_PATH from config
 
     logger.info("All modules initialised.")
+
+    # -- Warm macro-anchor cache (fetch yfinance data for all anchors) -----
+    if EDGE_STACK_ENABLED:
+        try:
+            macro_anchor.warm_cache(PAIRS)
+        except Exception as exc:
+            logger.warning("Macro anchor warm-up failed (non-fatal): %s", exc)
 
     # -- Orphan recovery on restart ----------------------------------------
     _recover_orphan_trades(order_manager, trade_logger)

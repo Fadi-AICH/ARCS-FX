@@ -41,7 +41,6 @@ THREAD SAFETY:
 import os
 import sys
 import logging
-import math
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Optional
@@ -52,6 +51,7 @@ from config import (
     BREAKEVEN_TRIGGER_R, TRAIL_TRIGGER_R, TRAIL_RATIO,
     PAIRS,
 )
+from core.instruments import distance_in_units, price_unit, risk_value_per_lot, round_volume, volume_constraints
 from risk.risk_manager import RiskManager, RiskCheckResult, AccountSnapshot, OpenPosition
 
 logger = logging.getLogger(__name__)
@@ -145,9 +145,15 @@ class ManagedPosition:
     # Management state
     initial_risk_r:       float    # abs(entry - initial_sl) in price units
     breakeven_applied:    bool = False
+    partial_taken:        bool = False   # True once 50% closed at +1.5R
     trailing_active:      bool = False
     highest_price:        float = 0.0   # for BUY trailing (updated each tick)
     lowest_price:         float = 0.0   # for SELL trailing (updated each tick)
+
+    # Trade-quality instrumentation (persisted on close → DB MAE/MFE columns)
+    mae_r:                float = 0.0   # most-negative R reached (worst drawdown)
+    mfe_r:                float = 0.0   # most-positive R reached (best run-up)
+    last_progress_utc:    str = ""      # timestamp last time R reached a new high
 
     # Metadata for DNA logging
     signal_type:  str = ""
@@ -249,8 +255,8 @@ class OrderManager:
         return round(price, digits)
 
     def _pip_size(self, symbol: str) -> float:
-        """Return pip size for position management calculations."""
-        return 0.01 if "JPY" in symbol else 0.0001
+        """Return the instrument's practical price unit for management logic."""
+        return price_unit(symbol, self._get_symbol_info(symbol))
 
     def _get_ask(self, symbol: str) -> Optional[float]:
         """Current ask price from MT5 tick."""
@@ -296,16 +302,28 @@ class OrderManager:
         is_buy = intent.direction == "BUY"
 
         # --- Duplicate position guard --------------------------------------
-        # Bug fix (Run #3): bot opened 3 identical NZDUSD positions on
-        # consecutive ticks because there was no check for an existing open
-        # position on the same symbol. One position per symbol max.
+        # Check both in-memory tracking AND live MT5 positions.
+        # Why both: if a position was opened and TP-hit within one tick cycle,
+        # self._positions won't have it, but MT5 might still show it (or vice
+        # versa on a race). Belt-and-suspenders.
         for existing in self._positions.values():
             if existing.symbol == symbol:
                 logger.info(
-                    "[OM] Skipping %s %s — already have open position %s",
+                    "[OM] Skipping %s %s — already have tracked position %s",
                     symbol, intent.direction, existing.trade_id,
                 )
                 return None
+
+        # Also check MT5 directly for any ARCS position on this symbol
+        live_positions = mt5.positions_get(symbol=symbol)
+        if live_positions:
+            for lp in live_positions:
+                if lp.magic == ARCS_MAGIC:
+                    logger.info(
+                        "[OM] Skipping %s %s — MT5 has live ARCS position ticket=%d",
+                        symbol, intent.direction, lp.ticket,
+                    )
+                    return None
 
         # --- Validation ----------------------------------------------------
         if is_buy and intent.sl_price >= intent.entry_price:
@@ -328,12 +346,16 @@ class OrderManager:
             return None
 
         # Warn if live price has drifted significantly from intent price
-        drift_pips = abs(live_price - intent.entry_price) / self._pip_size(symbol)
-        if drift_pips > 5:
+        drift_units = distance_in_units(
+            symbol,
+            abs(live_price - intent.entry_price),
+            self._get_symbol_info(symbol),
+        )
+        if drift_units > 5:
             logger.warning(
                 "[OM] %s %s: significant price drift since signal. "
-                "Intent=%.5f Live=%.5f drift=%.1f pips",
-                symbol, intent.direction, intent.entry_price, live_price, drift_pips,
+                "Intent=%.5f Live=%.5f drift=%.1f units",
+                symbol, intent.direction, intent.entry_price, live_price, drift_units,
             )
 
         # --- Build MT5 request ---------------------------------------------
@@ -533,6 +555,7 @@ class OrderManager:
                 "trail_trigger_r": 1.5,
                 "trail_ratio": 0.65,
                 "news_lock_r": 0.35,
+                "flat_time_limit_min": 120,
             }
         if signal_type.startswith("SWING_"):
             return {
@@ -540,12 +563,14 @@ class OrderManager:
                 "trail_trigger_r": 2.5,
                 "trail_ratio": 0.35,
                 "news_lock_r": 0.80,
+                "flat_time_limit_min": 720,
             }
         return {
             "breakeven_trigger_r": BREAKEVEN_TRIGGER_R,
             "trail_trigger_r": TRAIL_TRIGGER_R,
             "trail_ratio": TRAIL_RATIO,
             "news_lock_r": 0.50,
+            "flat_time_limit_min": 720,
         }
 
     def _manage_single_position(
@@ -579,7 +604,7 @@ class OrderManager:
 
         if mt5_pos is None:
             # Position closed externally (SL/TP hit, manual close, margin call)
-            close_price, pnl_usd = self._get_last_deal_info(pos.mt5_ticket, pos.symbol)
+            close_price, pnl_usd = self._get_last_deal_info(pos.mt5_ticket, pos.symbol, pos)
             won          = pnl_usd > 0
             close_reason = self._infer_close_reason(pos, close_price)
 
@@ -614,6 +639,33 @@ class OrderManager:
         else:
             current_r = (pos.entry_price - current_price) / pos.initial_risk_r
 
+        # --- Excursion tracking (MAE/MFE in R units) ----------------------
+        if current_r > pos.mfe_r:
+            pos.mfe_r = current_r
+            pos.last_progress_utc = datetime.now(timezone.utc).isoformat()
+        if current_r < pos.mae_r:
+            pos.mae_r = current_r
+
+        # --- No-progress time-stop ----------------------------------------
+        # Kill trades that sit flat too long. Scalp gets 120 min, swing 720 min.
+        # Only triggers when MFE never reached +0.5R — protects winners that pulled back.
+        if pos.opened_at_utc and pos.mfe_r < 0.5:
+            try:
+                opened = datetime.fromisoformat(pos.opened_at_utc.replace("Z", "+00:00"))
+                elapsed_min = (datetime.now(timezone.utc) - opened).total_seconds() / 60.0
+                limit_min = int(mgmt.get("flat_time_limit_min", 720))
+                if elapsed_min > limit_min:
+                    logger.info(
+                        "[OM] TIME_STOP firing: %s %s flat %.0fmin (limit %d), MFE=%.2fR",
+                        pos.symbol, pos.direction, elapsed_min, limit_min, pos.mfe_r,
+                    )
+                    rec = self.close_trade(pos.trade_id, reason="TIME_STOP")
+                    if rec and rec.success:
+                        closed_ids.append(pos.trade_id)
+                    return
+            except (ValueError, TypeError):
+                pass
+
         # --- Step 2: breakeven at +1R --------------------------------------
         if not pos.breakeven_applied and current_r >= mgmt["breakeven_trigger_r"]:
             be_price = self._normalize_price(pos.entry_price, pos.symbol)
@@ -626,6 +678,24 @@ class OrderManager:
                     "new_sl=%.5f | current_r=%.2fR",
                     pos.symbol, pos.direction, pos.entry_price, be_price, current_r,
                 )
+
+        # --- Step 2.5: partial TP at +1.5R (take 50% off the table) ---------
+        # Why: locks in guaranteed profit early. The remaining 50% rides with
+        # trailing stop for asymmetric upside. Tuned from Run #3 — all 3 wins
+        # hit full TP, but many setups will reverse before TP.
+        if not pos.partial_taken and pos.breakeven_applied and current_r >= 1.5:
+            half_lots = self._round_lots(pos.lots / 2.0, pos.symbol)
+            min_volume, _, _ = volume_constraints(pos.symbol, self._get_symbol_info(pos.symbol))
+            if half_lots >= min_volume:
+                success = self._partial_close(pos, half_lots, "PARTIAL_TP_1.5R")
+                if success:
+                    pos.partial_taken = True
+                    pos.lots -= half_lots
+                    logger.info(
+                        "[OM] PARTIAL TP taken: %s %s | closed %.2f lots at +%.1fR | "
+                        "remaining %.2f lots",
+                        pos.symbol, pos.direction, half_lots, current_r, pos.lots,
+                    )
 
         # --- Step 3: activate trailing at +2R ------------------------------
         if not pos.trailing_active and current_r >= mgmt["trail_trigger_r"]:
@@ -751,10 +821,14 @@ class OrderManager:
                 if success:
                     logger.debug(
                         "[OM] TRAIL update %s BUY: sl %.5f -> %.5f "
-                        "(high=%.5f move=%.1fpips)",
+                        "(high=%.5f move=%.1f units)",
                         pos.symbol, pos.sl_price, candidate_sl,
                         pos.highest_price,
-                        (pos.highest_price - pos.entry_price) / self._pip_size(pos.symbol),
+                        distance_in_units(
+                            pos.symbol,
+                            pos.highest_price - pos.entry_price,
+                            self._get_symbol_info(pos.symbol),
+                        ),
                     )
                     pos.sl_price = candidate_sl
         else:
@@ -767,10 +841,14 @@ class OrderManager:
                 if success:
                     logger.debug(
                         "[OM] TRAIL update %s SELL: sl %.5f -> %.5f "
-                        "(low=%.5f move=%.1fpips)",
+                        "(low=%.5f move=%.1f units)",
                         pos.symbol, pos.sl_price, candidate_sl,
                         pos.lowest_price,
-                        (pos.entry_price - pos.lowest_price) / self._pip_size(pos.symbol),
+                        distance_in_units(
+                            pos.symbol,
+                            pos.entry_price - pos.lowest_price,
+                            self._get_symbol_info(pos.symbol),
+                        ),
                     )
                     pos.sl_price = candidate_sl
 
@@ -876,54 +954,114 @@ class OrderManager:
                 return p
         return None
 
-    def _get_last_deal_info(self, ticket: int, symbol: str) -> tuple[float, float]:
+    def _get_last_deal_info(
+        self, ticket: int, symbol: str, pos: Optional[ManagedPosition] = None,
+    ) -> tuple[float, float]:
         """
-        Retrieve close price and P&L for a closed position from MT5 deal history.
-        Falls back to (0.0, 0.0) on failure.
+        Retrieve close price and P&L for a closed position.
 
-        MT5 stores closed deals in history_deals_get(). We search for the
-        deal that closed this position (entry=DEAL_ENTRY_OUT).
+        Uses a 3-tier fallback strategy because MT5 deal history is
+        unreliable — brokers may delay writing deals, purge them early,
+        or use non-standard position_id mapping.
 
-        Bug fix (Run #3): previously used float timestamps which some MT5
-        builds silently reject. Now passes datetime objects. Also tries
-        matching on both position_id and order (some brokers populate one
-        but not the other).
+        Tier 1: MT5 history_deals_get (precise, but often empty/delayed)
+        Tier 2: Last known floating P&L from manage_open_positions tick
+        Tier 3: Compute from entry vs TP/SL price (approximate)
         """
         mt5 = self._get_mt5()
         from datetime import timedelta
         now_utc  = datetime.now(timezone.utc)
         week_ago = now_utc - timedelta(days=7)
 
-        # MT5 Python API accepts datetime objects reliably across all builds.
-        deals = mt5.history_deals_get(week_ago, now_utc, group=f"*{symbol}*")
-
-        if deals is None or len(deals) == 0:
-            # Retry without group filter — some brokers use non-standard symbol naming
-            deals = mt5.history_deals_get(week_ago, now_utc)
-            if deals is None or len(deals) == 0:
-                logger.warning(
-                    "[OM] history_deals_get returned no deals for ticket=%d %s",
-                    ticket, symbol,
-                )
-                return 0.0, 0.0
-
-        # DEAL_ENTRY_OUT = 1 (closing deal)
+        # --- Tier 1: MT5 deal history lookup ----------------------------------
         DEAL_ENTRY_OUT = 1
-        for deal in reversed(deals):   # most recent first
-            if deal.entry == DEAL_ENTRY_OUT and (
-                deal.position_id == ticket or deal.order == ticket
-            ):
-                logger.debug(
-                    "[OM] Found closing deal for ticket=%d: price=%.5f profit=%.2f",
-                    ticket, deal.price, deal.profit,
-                )
-                return deal.price, deal.profit
+        for group_filter in [f"*{symbol}*", None]:
+            if group_filter:
+                deals = mt5.history_deals_get(week_ago, now_utc, group=group_filter)
+            else:
+                deals = mt5.history_deals_get(week_ago, now_utc)
+            if deals:
+                for deal in reversed(deals):
+                    if deal.entry == DEAL_ENTRY_OUT and (
+                        deal.position_id == ticket or deal.order == ticket
+                    ):
+                        logger.info(
+                            "[OM] Tier1 deal history: ticket=%d price=%.5f profit=%.2f",
+                            ticket, deal.price, deal.profit,
+                        )
+                        return deal.price, deal.profit
 
         logger.warning(
-            "[OM] No DEAL_ENTRY_OUT found for ticket=%d %s in %d deals",
-            ticket, symbol, len(deals),
+            "[OM] Tier1 deal history found nothing for ticket=%d %s", ticket, symbol,
+        )
+
+        # --- Tier 2: last known floating P&L from position tracking -----------
+        if pos is not None and pos.pnl_usd != 0.0:
+            # pos.pnl_usd is updated every tick from mt5_pos.profit — it's the
+            # most recent P&L value before the position disappeared.
+            close_price = pos.tp_price if pos.pnl_usd > 0 else pos.sl_price
+            logger.info(
+                "[OM] Tier2 last-known P&L: ticket=%d pnl=$%.2f (from previous tick)",
+                ticket, pos.pnl_usd,
+            )
+            return close_price, pos.pnl_usd
+
+        # --- Tier 3: compute from entry vs TP/SL price -----------------------
+        if pos is not None:
+            close_reason = self._infer_close_reason_from_price(pos)
+
+            if close_reason == "TP_HIT" and pos.tp_price > 0:
+                pnl = risk_value_per_lot(
+                    symbol, pos.entry_price, pos.tp_price, self._get_symbol_info(symbol)
+                ) * pos.lots
+                logger.info(
+                    "[OM] Tier3 computed TP_HIT: ticket=%d pnl=$%.2f", ticket, pnl,
+                )
+                return pos.tp_price, pnl
+            elif close_reason == "SL_HIT":
+                pnl = -(
+                    risk_value_per_lot(
+                        symbol, pos.entry_price, pos.initial_sl_price, self._get_symbol_info(symbol)
+                    ) * pos.lots
+                )
+                logger.info(
+                    "[OM] Tier3 computed SL_HIT: ticket=%d pnl=$%.2f", ticket, pnl,
+                )
+                return pos.initial_sl_price, pnl
+
+        # Final fallback: never lose the trade entirely. Use last-known floating
+        # P&L if available (even if 0), and the entry price as the close marker
+        # so the row is closed and won't reappear as an orphan.
+        if pos is not None:
+            fallback_pnl = pos.pnl_usd
+            fallback_price = pos.entry_price
+            logger.warning(
+                "[OM] All 3 tiers failed for ticket=%d %s — recording last-known pnl=$%.2f",
+                ticket, symbol, fallback_pnl,
+            )
+            return fallback_price, fallback_pnl
+
+        logger.warning(
+            "[OM] All 3 tiers failed for ticket=%d %s — recording $0 (no pos record)",
+            ticket, symbol,
         )
         return 0.0, 0.0
+
+    def _infer_close_reason_from_price(self, pos: ManagedPosition) -> str:
+        """Check current market price to guess if TP or SL was hit."""
+        mt5 = self._get_mt5()
+        tick = mt5.symbol_info_tick(pos.symbol)
+        if tick is None:
+            return "UNKNOWN"
+        current = tick.bid if pos.direction == "BUY" else tick.ask
+        pip = self._pip_size(pos.symbol)
+        # If current price is near TP -> TP hit; if near SL -> SL hit
+        if pos.tp_price > 0:
+            tp_dist = abs(current - pos.tp_price) / pip
+            sl_dist = abs(current - pos.initial_sl_price) / pip
+            if tp_dist < sl_dist:
+                return "TP_HIT"
+        return "SL_HIT"
 
     def _infer_close_reason(self, pos: ManagedPosition, close_price: float) -> str:
         """
@@ -1010,6 +1148,53 @@ class OrderManager:
         pos.tp_price = 0.0
         return True
 
+    def _partial_close(self, pos: ManagedPosition, lots: float, reason: str) -> bool:
+        """
+        Close a portion of an open position at market.
+        Returns True on success.
+
+        Used by partial TP logic: close 50% at +1.5R, let the rest trail.
+        MT5 handles partial closes via a DEAL order with reduced volume
+        on the same position ticket.
+        """
+        mt5    = self._get_mt5()
+        is_buy = pos.direction == "BUY"
+
+        close_type  = mt5.ORDER_TYPE_SELL if is_buy else mt5.ORDER_TYPE_BUY
+        close_price = self._get_bid(pos.symbol) if is_buy else self._get_ask(pos.symbol)
+        if close_price is None:
+            return False
+
+        request = {
+            "action":       mt5.TRADE_ACTION_DEAL,
+            "symbol":       pos.symbol,
+            "volume":       round_volume(pos.symbol, lots, self._get_symbol_info(pos.symbol), mode="down"),
+            "type":         close_type,
+            "position":     pos.mt5_ticket,
+            "price":        close_price,
+            "deviation":    10,
+            "magic":        ARCS_MAGIC,
+            "comment":      _safe_comment(f"ARCS-{reason}"),
+            "type_time":    mt5.ORDER_TIME_GTC,
+            "type_filling": mt5.ORDER_FILLING_IOC,
+        }
+
+        result = mt5.order_send(request)
+        if result is None or result.retcode != MT5_RETCODE_SUCCESS:
+            code = result.retcode if result else "None"
+            logger.warning(
+                "[OM] Partial close FAILED for %s ticket=%d: retcode=%s",
+                pos.symbol, pos.mt5_ticket, code,
+            )
+            return False
+
+        return True
+
+    @staticmethod
+    def _round_lots(lots: float, symbol: str) -> float:
+        """Round lot size down to broker-supported volume step."""
+        return round_volume(symbol, lots, mode="down")
+
     def _on_trade_closed(
         self,
         pos:         ManagedPosition,
@@ -1041,6 +1226,8 @@ class OrderManager:
                 close_reason = reason,
                 breakeven_applied = pos.breakeven_applied,
                 trailing_active   = pos.trailing_active,
+                max_adverse_exc_r    = pos.mae_r,
+                max_favourable_exc_r = pos.mfe_r,
             )
 
     # -----------------------------------------------------------------------

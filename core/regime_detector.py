@@ -54,6 +54,7 @@ from config import (
     REGIME_RANGING_CLEAN, REGIME_QUIET, REGIME_CHAOTIC,
     TF_H1,
 )
+from core.instruments import get_profile
 
 logger = logging.getLogger(__name__)
 
@@ -150,8 +151,10 @@ def detect(
     atr_pct = _atr_percentile(df)
 
     # -- Classify regime -----------------------------------
+    profile = get_profile(symbol)
+
     regime, confidence, components = _classify(
-        adx, adx_pos, adx_neg, atr_pct, bb_w, bb_pct
+        adx, adx_pos, adx_neg, atr_pct, bb_w, bb_pct, profile
     )
 
     # -- Direction bias ------------------------------------
@@ -201,7 +204,16 @@ def detect_multi_tf(
         results["M15"] = m15
 
     if h1 and m15:
-        if h1.regime != m15.regime:
+        # Whitelist compatible pairs: QUIET inside a RANGING/TRENDING parent is a
+        # sub-regime, not a conflict. Only flag as mismatch when the regimes are
+        # genuinely incompatible (e.g. RANGING vs CHAOTIC, RANGING vs TRENDING_EXTENDED).
+        compatible = {
+            ("RANGING_CLEAN",      "QUIET"),
+            ("TRENDING_CLEAN",     "QUIET"),
+            ("TRENDING_EXTENDED",  "QUIET"),
+        }
+        pair = (h1.regime, m15.regime)
+        if h1.regime != m15.regime and pair not in compatible:
             logger.warning(
                 "[%s] MTF regime mismatch: H1=%s vs M15=%s — confidence penalised.",
                 symbol, h1.regime, m15.regime,
@@ -305,6 +317,7 @@ def _classify(
     atr_pct: float,
     bb_width: float,
     bb_pct_b: float,
+    profile,
 ) -> tuple[str, float, dict]:
     """
     Core classification algorithm.
@@ -322,19 +335,33 @@ def _classify(
     # -- CHAOTIC: absolute override ------------------------
     # ATR at extreme is the primary chaotic signal.
     # Low ATR (dead market) is equally untradeable.
-    if atr_pct >= ATR_CHAOS_PCT:
-        components["trigger"] = f"ATR_pct={atr_pct:.0f} >= {ATR_CHAOS_PCT} (extreme volatility)"
+    chaos_atr_pct = profile.regime_chaos_atr_pct
+    quiet_atr_pct = profile.regime_quiet_atr_pct
+    dominant_floor = profile.regime_dominant_floor
+    atr_low_pct = profile.regime_atr_low_pct
+    atr_high_pct = profile.regime_atr_high_pct
+
+    if atr_pct >= chaos_atr_pct:
+        components["trigger"] = f"ATR_pct={atr_pct:.0f} >= {chaos_atr_pct:.0f} (extreme volatility)"
         return REGIME_CHAOTIC, 1.0, components
 
-    if atr_pct < 10:
-        components["trigger"] = f"ATR_pct={atr_pct:.0f} < 10 (dead market)"
+    if atr_pct < quiet_atr_pct:
+        components["trigger"] = f"ATR_pct={atr_pct:.0f} < {quiet_atr_pct:.0f} (dead market)"
         return REGIME_QUIET, 0.9, components
 
     # -- Score TRENDING (0–1) ------------------------------
-    trending_score = _score_trending(adx, adx_pos, adx_neg, atr_pct)
+    trending_score = _score_trending(
+        adx, adx_pos, adx_neg, atr_pct,
+        atr_low_pct=atr_low_pct,
+        atr_high_pct=atr_high_pct,
+        chaos_atr_pct=chaos_atr_pct,
+    )
 
     # -- Score RANGING (0–1) -------------------------------
-    ranging_score = _score_ranging(adx, atr_pct, bb_pct_b)
+    ranging_score = _score_ranging(
+        adx, atr_pct, bb_pct_b,
+        atr_high_pct=atr_high_pct,
+    )
 
     components["trending_score"] = round(trending_score, 3)
     components["ranging_score"]  = round(ranging_score, 3)
@@ -345,13 +372,13 @@ def _classify(
     # -- Decision ------------------------------------------
     # Neither score dominant enough -> QUIET / transitional market
     dominant = max(trending_score, ranging_score)
-    if dominant < 0.35:
+    if dominant < dominant_floor:
         components["trigger"] = "No dominant regime (transitional / low-conviction)"
         return REGIME_QUIET, 0.7, components
 
     if trending_score >= ranging_score:
         confidence = min(trending_score, 1.0)
-        if atr_pct > ATR_HIGH_PCT or adx >= 38:
+        if atr_pct > atr_high_pct or adx >= 38:
             components["trigger"] = (
                 f"Strong trend but extended conditions "
                 f"(ADX={adx:.1f}, ATR_pct={atr_pct:.0f})"
@@ -374,6 +401,9 @@ def _score_trending(
     adx_pos: float,
     adx_neg: float,
     atr_pct: float,
+    atr_low_pct: float = ATR_LOW_PCT,
+    atr_high_pct: float = ATR_HIGH_PCT,
+    chaos_atr_pct: float = ATR_CHAOS_PCT,
 ) -> float:
     """
     Score how strongly the market exhibits trending characteristics.
@@ -396,13 +426,13 @@ def _score_trending(
     di_score = np.clip(di_sep, 0, 1)
 
     # Factor 3: ATR in sweet spot (30th–70th pct)
-    if ATR_LOW_PCT <= atr_pct <= ATR_HIGH_PCT:
+    if atr_low_pct <= atr_pct <= atr_high_pct:
         atr_score = 1.0
-    elif atr_pct < ATR_LOW_PCT:
-        atr_score = atr_pct / ATR_LOW_PCT           # scale up to 1 at 30th pct
+    elif atr_pct < atr_low_pct:
+        atr_score = atr_pct / atr_low_pct           # scale up to 1 at lower sweet spot
     else:
         # Above 70th pct: trend still possible but getting dangerous
-        atr_score = max(0, 1 - (atr_pct - ATR_HIGH_PCT) / (ATR_CHAOS_PCT - ATR_HIGH_PCT))
+        atr_score = max(0, 1 - (atr_pct - atr_high_pct) / max(chaos_atr_pct - atr_high_pct, 1))
 
     return 0.50 * adx_score + 0.30 * di_score + 0.20 * atr_score
 
@@ -411,6 +441,7 @@ def _score_ranging(
     adx: float,
     atr_pct: float,
     bb_pct_b: float,
+    atr_high_pct: float = ATR_HIGH_PCT,
 ) -> float:
     """
     Score how strongly the market exhibits ranging characteristics.
@@ -430,8 +461,8 @@ def _score_ranging(
     # ATR below 50th pct scores well; above 70th pct scores 0
     if atr_pct <= 50:
         atr_score = 1.0
-    elif atr_pct <= ATR_HIGH_PCT:
-        atr_score = 1 - (atr_pct - 50) / (ATR_HIGH_PCT - 50)
+    elif atr_pct <= atr_high_pct:
+        atr_score = 1 - (atr_pct - 50) / max(atr_high_pct - 50, 1)
     else:
         atr_score = 0.0
 

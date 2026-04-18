@@ -44,6 +44,7 @@ from config import (
     SPREAD_LIMITS, SPREAD_DEFAULT_LIMIT,
     SESSIONS, NEWS_PAUSE_BEFORE_MIN,
 )
+from core.instruments import session_mode as instrument_session_mode
 
 logger = logging.getLogger(__name__)
 
@@ -220,7 +221,9 @@ def _score_regime_clarity(regime_result) -> ComponentScore:
     weight = CONFIDENCE_WEIGHTS["regime_clarity"]
     conf = regime_result.confidence
 
-    # Base score from confidence
+    # Base score from confidence (floors raised 2026-04-18 — <40% tier was 0.20 pre-fix,
+    # but CHAOTIC/QUIET are already hard-blocked above, so a "valid" low-conf regime
+    # shouldn't nuke the whole score to 5/25).
     if conf >= 0.80:
         raw = 1.0
         reason = f"Strong {regime_result.regime} regime (conf={conf:.0%})"
@@ -228,10 +231,10 @@ def _score_regime_clarity(regime_result) -> ComponentScore:
         raw = 0.75
         reason = f"Moderate {regime_result.regime} regime (conf={conf:.0%})"
     elif conf >= 0.40:
-        raw = 0.50
+        raw = 0.60
         reason = f"Weak {regime_result.regime} regime (conf={conf:.0%})"
     else:
-        raw = 0.20
+        raw = 0.40
         reason = f"Unclear regime (conf={conf:.0%})"
 
     # Direction penalty: NEUTRAL = we don't know which way to trade
@@ -360,17 +363,30 @@ def _score_mtf_confluence(regime_h1, regime_m15, pa_signal) -> ComponentScore:
     else:
         signal_aligned = False
 
+    # Scoring tiers — tuned after Run #3 data showed mtf_confluence=5.2/15
+    # on every pair every tick, because H1/M15 regimes almost never match
+    # (a 1h range naturally contains 15-min trends — that's normal).
+    #
+    # Key insight: signal alignment with H1 bias is what matters most.
+    # M15 regime mismatch is a mild quality penalty, not a dealbreaker.
     if regime_match and direction_match and signal_aligned:
         raw = 1.0
         reason = f"Full alignment: H1={dir_h1} M15={dir_m15} Signal={signal_dir}"
     elif regime_match and signal_aligned:
-        raw = 0.75
+        raw = 0.85
         reason = f"Regime match, direction partial: H1={dir_h1} M15={dir_m15}"
     elif signal_aligned:
         raw = 0.80
-        reason = f"Signal aligned with H1; M15 differs but PA filter already passed"
+        reason = f"Signal aligned with H1 bias; M15 regime differs (normal MTF divergence)"
+    elif regime_match:
+        raw = 0.55
+        reason = f"Regime match but signal opposes H1 bias: H1={dir_h1} Signal={signal_dir}"
+    elif dir_h1 == "NEUTRAL":
+        # H1 has no directional bias — trust the signal
+        raw = 0.65
+        reason = f"H1 direction neutral — signal accepted on PA merit"
     else:
-        raw = 0.35
+        raw = 0.40
         reason = f"MTF conflict: H1={dir_h1} M15={dir_m15} Signal={signal_dir}"
 
     return ComponentScore(
@@ -469,6 +485,10 @@ def _score_key_level(pa_signal) -> ComponentScore:
 
     WHY: Entries AT key levels have dramatically better fill prices and
     lower chance of being stop-hunted. A level confirms institutional interest.
+
+    Tuned after Run #3: in ranging markets, price oscillates BETWEEN levels.
+    Floor bumped from 0.10 to 0.30 — being far from levels is normal for
+    mean-reversion setups where S/D zones matter more than key levels.
     """
     weight = CONFIDENCE_WEIGHTS["key_level"]
     klp = pa_signal.key_level_proximity
@@ -480,11 +500,11 @@ def _score_key_level(pa_signal) -> ComponentScore:
         raw = 0.65
         reason = f"Near key level (proximity={klp:.2f})"
     elif klp >= 0.25:
-        raw = 0.35
-        reason = f"Weak level proximity (proximity={klp:.2f})"
+        raw = 0.45
+        reason = f"Moderate level proximity (proximity={klp:.2f})"
     else:
-        raw = 0.10
-        reason = f"No key level nearby (proximity={klp:.2f})"
+        raw = 0.30
+        reason = f"No key level nearby (proximity={klp:.2f}) — acceptable for ranging setups"
 
     return ComponentScore(
         name="key_level",
@@ -593,23 +613,27 @@ def _score_spread_session(
         pass
 
     if not heatmap_used:
-        # Static fallback: pure session-time preference
-        overlap_start, overlap_end = SESSIONS["OVERLAP"]
-        london_start,  london_end  = SESSIONS["LONDON"]
-        ny_start,      ny_end      = SESSIONS["NY"]
-
-        if overlap_start <= hour_utc < overlap_end:
+        if instrument_session_mode(symbol) == "always_on":
             session_score = 1.0
-            session_reason = "London/NY overlap (optimal)"
-        elif london_start <= hour_utc < london_end:
-            session_score = 0.75
-            session_reason = "London session"
-        elif ny_start <= hour_utc < ny_end:
-            session_score = 0.75
-            session_reason = "NY session"
+            session_reason = "24/7 instrument (session-neutral)"
         else:
-            session_score = 0.25
-            session_reason = "Asian/off session (low liquidity)"
+            # Static fallback: pure session-time preference
+            overlap_start, overlap_end = SESSIONS["OVERLAP"]
+            london_start,  london_end  = SESSIONS["LONDON"]
+            ny_start,      ny_end      = SESSIONS["NY"]
+
+            if overlap_start <= hour_utc < overlap_end:
+                session_score = 1.0
+                session_reason = "London/NY overlap (optimal)"
+            elif london_start <= hour_utc < london_end:
+                session_score = 0.75
+                session_reason = "London session"
+            elif ny_start <= hour_utc < ny_end:
+                session_score = 0.75
+                session_reason = "NY session"
+            else:
+                session_score = 0.25
+                session_reason = "Asian/off session (low liquidity)"
 
     raw    = spread_score * 0.60 + session_score * 0.40
     reason = f"{spread_reason} | {session_reason}"

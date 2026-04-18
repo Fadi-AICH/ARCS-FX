@@ -31,6 +31,7 @@ from config import (
     CANDLES_H1, CANDLES_M15, CANDLES_M5,
     PAIRS,
 )
+from core.instruments import price_unit
 
 logger = logging.getLogger(__name__)
 
@@ -135,6 +136,10 @@ def get_tick(symbol: str) -> Optional[dict]:
 
     WHY: Used by spread filter before every order — must be
     called immediately before entry, not cached.
+
+    NOTE: `spread_pips` is a legacy field name kept for compatibility with
+    the rest of the bot. For crypto/instrument-aware symbols it represents
+    spread in the instrument's practical price unit, not strictly FX pips.
     """
     tick = mt5.symbol_info_tick(symbol)
     if tick is None:
@@ -216,24 +221,14 @@ def _resolve_timeframe(tf_str: str) -> Optional[int]:
 
 def _get_pip_size(symbol: str) -> float:
     """
-    Return pip size for a symbol.
+    Return the instrument's practical price unit.
 
-    WHY: Most FX pairs have 5-decimal quotes where 1 pip = 0.0001.
-    JPY pairs have 3-decimal quotes where 1 pip = 0.01.
-    We detect this from the symbol's point/digits to stay accurate.
+    FX pairs still map to classic pip sizes. Non-FX symbols reuse the
+    same downstream field names for compatibility, but the returned value
+    is instrument-aware via `core.instruments.price_unit()`.
     """
     info = mt5.symbol_info(symbol)
-    if info is None:
-        return 0.0001  # safe fallback
-
-    # point = smallest price move; pip = 10 x point for 5-decimal pairs
-    # For JPY pairs (3 or 5 decimal), same logic applies via digits
-    if info.digits in (3, 5):      # standard 5-decimal OR JPY 3-decimal
-        return info.point * 10
-    elif info.digits in (2, 4):    # older 4-decimal broker
-        return info.point
-    else:
-        return info.point * 10     # safest default
+    return price_unit(symbol, info)
 
 
 # ---------------------------------------------------------

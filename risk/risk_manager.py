@@ -42,7 +42,6 @@ import os
 import sys
 import json
 import logging
-import math
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone, timedelta
 from typing import Optional
@@ -57,6 +56,13 @@ from config import (
     DAILY_LOSS_LIMIT_PCT, WEEKLY_LOSS_LIMIT_PCT,
     MAX_CONSECUTIVE_LOSSES, CONSECUTIVE_LOSS_COOLDOWN_H,
     PAIRS, DB_PATH,
+)
+from core.instruments import (
+    distance_in_units,
+    get_profile,
+    risk_value_per_lot,
+    round_volume,
+    volume_constraints,
 )
 
 logger = logging.getLogger(__name__)
@@ -217,6 +223,7 @@ class RiskManager:
         sl_price:         float,
         account:          AccountSnapshot,
         open_positions:   list[OpenPosition],
+        max_lots_cap:     float = 0.0,   # if > 0, vol-targeted upper bound on lots
     ) -> RiskCheckResult:
         """
         Master gate: should the bot open this trade?
@@ -319,6 +326,21 @@ class RiskManager:
         lots, risk_pct, risk_usd = self._calculate_position_size(
             symbol, entry_price, sl_price, account.balance, win_rate
         )
+
+        # Inverse-vol upper bound: caps lots in calm markets where SL-based
+        # sizing would otherwise allow oversized positions to meet risk %.
+        # The cap can never INCREASE size -- it is a ceiling, not a floor.
+        if max_lots_cap > 0 and lots > max_lots_cap:
+            risk_per_lot = risk_value_per_lot(symbol, entry_price, sl_price)
+            logger.info(
+                "[RISK] Inverse-vol cap applied for %s: %.2f -> %.2f lots",
+                symbol, lots, max_lots_cap,
+            )
+            lots = round_volume(symbol, max_lots_cap, mode="down")
+            min_volume, _, _ = volume_constraints(symbol)
+            if lots >= min_volume and risk_per_lot > 0:
+                risk_usd = lots * risk_per_lot
+                risk_pct = (risk_usd / account.balance) * 100.0
 
         if lots <= 0.0:
             result.skip_reason = (
@@ -493,14 +515,7 @@ class RiskManager:
         Full Kelly can be unlocked in Phase 5 once live performance data exists.
 
         LOT CALCULATION:
-          SL distance in price units -> convert to pips -> USD per pip per lot
-          -> lots = risk_usd / (sl_pips * pip_value_per_lot)
-
-        NOTE on pip value:
-          For most pairs 1 standard lot = $10/pip.
-          For JPY pairs (e.g. USDJPY) it is approximately $9.26/pip at current rate,
-          but we use the conservative $10 approximation. Order manager will
-          apply the precise MT5 tick_value at execution time.
+          stop distance -> contract-aware risk-per-lot -> lots
         """
         # Determine risk % based on win rate
         if win_rate >= WIN_RATE_SCALE_UP:
@@ -525,46 +540,52 @@ class RiskManager:
             )
             return 0.0, 0.0, 0.0
 
-        # Convert to pips
-        is_jpy_quote = symbol.endswith("JPY")
-        pip_size     = 0.01 if is_jpy_quote else 0.0001
-        sl_pips      = sl_distance / pip_size
+        sl_units = distance_in_units(symbol, sl_distance)
+        risk_per_lot = risk_value_per_lot(symbol, entry_price, sl_price)
 
-        # USD pip value per standard lot.
-        # For USD-quoted pairs (EURUSD, GBPUSD, ...) -> $10/pip exactly.
-        # For JPY-quoted pairs pip value in JPY = 1000; convert to USD.
-        #   USDJPY: pip_value_usd = 1000 / entry_price
-        #   JPY crosses (EURJPY, GBPJPY, ...): approximate via entry_price as
-        #   if USDJPY were the denominator — bounded error, corrected precisely
-        #   at execution time by MT5 tick_value.
-        if is_jpy_quote:
-            pip_value_per_lot = 1000.0 / entry_price if entry_price > 0 else 8.0
-        else:
-            pip_value_per_lot = 10.0
+        # Minimum stop-distance floor from the instrument profile.
+        # This prevents oversized sizing on symbols whose raw stop is too
+        # tight for their normal volatility. The order keeps the original SL;
+        # the floor is only used for risk sizing.
+        min_stop_units = get_profile(symbol).min_stop_units
+        if sl_units < min_stop_units:
+            logger.warning(
+                "[RISK] SL too tight for %s: %.1f units < %.1f minimum. "
+                "Using %.1f units for lot sizing (actual SL unchanged).",
+                symbol, sl_units, min_stop_units, min_stop_units,
+            )
+            if sl_units > 0:
+                risk_per_lot *= (min_stop_units / sl_units)
+            sl_units = min_stop_units
+
+        if risk_per_lot <= 0:
+            logger.error("[RISK] Could not derive risk-per-lot for %s", symbol)
+            return 0.0, 0.0, 0.0
 
         # Lots to risk exactly risk_usd
-        raw_lots = risk_usd / (sl_pips * pip_value_per_lot)
+        raw_lots = risk_usd / risk_per_lot
 
-        # Round DOWN to nearest 0.01 lot (broker standard minimum step)
-        lots = math.floor(raw_lots * 100) / 100
+        # Round to broker-supported volume step.
+        lots = round_volume(symbol, raw_lots, mode="down")
 
         # Enforce minimum viable lot size
-        if lots < 0.01:
+        min_volume, _, _ = volume_constraints(symbol)
+        if lots < min_volume:
             logger.warning(
-                "[RISK] Calculated lots %.4f < 0.01 minimum for %s. Skipping.",
-                raw_lots, symbol,
+                "[RISK] Calculated lots %.4f < %.2f minimum for %s. Skipping.",
+                raw_lots, min_volume, symbol,
             )
             return 0.0, 0.0, 0.0
 
         # Recalculate actual risk with rounded lots
-        actual_risk_usd = lots * sl_pips * pip_value_per_lot
+        actual_risk_usd = lots * risk_per_lot
         actual_risk_pct = (actual_risk_usd / balance) * 100.0
 
         logger.debug(
             "[RISK] Sizing %s: win_rate=%.1f%% risk_pct=%.2f%% "
-            "sl_pips=%.1f raw_lots=%.4f final_lots=%.2f risk_usd=$%.2f",
+            "sl_units=%.1f raw_lots=%.4f final_lots=%.2f risk_usd=$%.2f",
             symbol, win_rate * 100, risk_pct,
-            sl_pips, raw_lots, lots, actual_risk_usd,
+            sl_units, raw_lots, lots, actual_risk_usd,
         )
 
         return lots, actual_risk_pct, actual_risk_usd

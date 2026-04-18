@@ -5,9 +5,14 @@ pandas
 requests
 ta
 
+# Edge stack (Phase 2 -- hedge-fund-style filters)
+yfinance        # macro_anchor: DXY, oil, copper, yields, SPX/FTSE closes
+scikit-learn    # signal_calibrator: logistic regression meta-model
+
 # Optional but recommended
 python-dotenv
 feedparser
+cot_reports     # cot_positioning: CFTC Commitment of Traders (weekly)
 
 # Optional features
 # reportlab      # PDF weekly reports

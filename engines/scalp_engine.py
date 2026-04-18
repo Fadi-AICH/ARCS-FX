@@ -19,6 +19,7 @@ from config import (
     MEAN_REVERSION_CORE_SESSIONS,
     MEAN_REVERSION_ASIAN_SYMBOLS,
 )
+from core.instruments import display_session, session_mode
 
 
 def session_label(ts: datetime) -> str:
@@ -50,6 +51,9 @@ def scalp_session_allowed(symbol: str, ts: datetime) -> tuple[bool, str]:
     - Asian session is allowed only for pairs with natural JPY/AUD/NZD flow.
     - OFF session is disallowed for scalps.
     """
+    if session_mode(symbol) == "always_on":
+        return True, f"{display_session(symbol) or '24/7'} instrument trades around the clock"
+
     session = session_label(ts)
 
     if session in SCALP_CORE_SESSIONS:
@@ -71,6 +75,9 @@ def mean_reversion_session_allowed(symbol: str, ts: datetime) -> tuple[bool, str
     We allow it in the main liquid sessions, and only allow Asian-session
     participation for symbols with a natural Asian flow profile.
     """
+    if session_mode(symbol) == "always_on":
+        return True, f"{display_session(symbol) or '24/7'} instrument trades around the clock"
+
     session = session_label(ts)
 
     if session in MEAN_REVERSION_CORE_SESSIONS:

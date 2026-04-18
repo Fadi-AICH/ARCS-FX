@@ -9,6 +9,8 @@ import os
 import sys
 import json
 import sqlite3
+import calendar as pycalendar
+from datetime import datetime, timezone
 from pathlib import Path
 from flask import Flask, render_template, jsonify, request
 
@@ -18,6 +20,24 @@ BASE_DIR = Path(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 DATA_DIR = BASE_DIR / "data"
 LOGS_DIR = BASE_DIR / "logs"
 DB_PATH  = DATA_DIR / "trades.db"
+STATUS_STALE_AFTER_S = 180
+
+# Ignore corrupted/placeholder closes in dashboard analytics until the
+# execution/history reconciliation layer can resolve them properly.
+VALID_CLOSED_TRADES_WHERE = (
+    "closed_at_utc IS NOT NULL "
+    "AND NOT ("
+    "UPPER(COALESCE(close_reason, '')) = 'UNKNOWN' "
+    "AND COALESCE(CAST(close_price AS REAL), 0) <= 0 "
+    "AND ABS(COALESCE(pnl_usd, 0)) < 1e-9"
+    ")"
+)
+ANOMALOUS_CLOSED_TRADES_WHERE = (
+    "closed_at_utc IS NOT NULL "
+    "AND UPPER(COALESCE(close_reason, '')) = 'UNKNOWN' "
+    "AND COALESCE(CAST(close_price AS REAL), 0) <= 0 "
+    "AND ABS(COALESCE(pnl_usd, 0)) < 1e-9"
+)
 
 app = Flask(__name__, template_folder="templates")
 
@@ -45,6 +65,25 @@ def _db_query(sql, params=()):
         return []
 
 
+def _parse_iso_utc(ts):
+    if not ts:
+        return None
+    try:
+        return datetime.fromisoformat(ts.replace("Z", "+00:00"))
+    except Exception:
+        return None
+
+
+def _status_is_fresh(ts, stale_after_s=STATUS_STALE_AFTER_S):
+    dt = _parse_iso_utc(ts)
+    if not dt:
+        return False
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    age = (datetime.now(timezone.utc) - dt).total_seconds()
+    return age <= stale_after_s
+
+
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
@@ -57,25 +96,54 @@ def index():
 @app.route("/api/overview")
 def api_overview():
     status = _read_json(DATA_DIR / "bot_status.json")
+    fresh = _status_is_fresh(status.get("timestamp"))
+    status["status_fresh"] = fresh
+    status["bot_running_effective"] = bool(status.get("bot_running")) and fresh
 
     # Aggregate stats from DB
     stats_rows = _db_query(
         "SELECT COUNT(*) as total, "
         "SUM(CASE WHEN won=1 THEN 1 ELSE 0 END) as wins, "
         "SUM(pnl_usd) as total_pnl "
-        "FROM trades WHERE closed_at_utc IS NOT NULL"
+        f"FROM trades WHERE {VALID_CLOSED_TRADES_WHERE}"
+    )
+    anomaly_rows = _db_query(
+        f"SELECT COUNT(*) as total FROM trades WHERE {ANOMALOUS_CLOSED_TRADES_WHERE}"
     )
     if stats_rows:
         s = stats_rows[0]
         total = s.get("total") or 0
         wins  = s.get("wins")  or 0
+        anomalies = (anomaly_rows[0].get("total") if anomaly_rows else 0) or 0
         status["db_stats"] = {
             "total_trades":  total,
+            "valid_closed_trades": total,
+            "anomaly_trades": anomalies,
             "wins":          wins,
             "losses":        total - wins,
             "win_rate":      round(wins / total, 4) if total > 0 else 0,
             "total_pnl_usd": round(s.get("total_pnl") or 0, 2),
         }
+
+    last_trade_rows = _db_query(
+        "SELECT symbol, direction, pnl_usd, won, signal_type, session, "
+        "confidence, closed_at_utc, close_reason "
+        f"FROM trades WHERE {VALID_CLOSED_TRADES_WHERE} "
+        "ORDER BY closed_at_utc DESC LIMIT 1"
+    )
+    status["last_valid_trade"] = last_trade_rows[0] if last_trade_rows else None
+
+    gate_counts = (status.get("gate_stats") or {}).get("counts") or {}
+    status["market_pulse"] = {
+        "active_setups": max(0, len(status.get("regimes") or {}) - (gate_counts.get("pa_no_signal") or 0)),
+        "quiet_pairs": gate_counts.get("regime_quiet") or 0,
+        "chaotic_pairs": gate_counts.get("regime_chaotic") or 0,
+        "blocked_setups": (
+            (gate_counts.get("confidence_blocked") or 0)
+            + (gate_counts.get("risk_blocked") or 0)
+            + (gate_counts.get("news_blackout") or 0)
+        ),
+    }
 
     # Circuit breakers from risk_state.json
     risk = _read_json(DATA_DIR / "risk_state.json")
@@ -90,7 +158,7 @@ def api_overview():
 def api_trades():
     limit = min(int(request.args.get("limit", 20)), 100)
     rows = _db_query(
-        "SELECT * FROM trades WHERE closed_at_utc IS NOT NULL "
+        f"SELECT * FROM trades WHERE {VALID_CLOSED_TRADES_WHERE} "
         "ORDER BY closed_at_utc DESC LIMIT ?",
         (limit,),
     )
@@ -101,7 +169,7 @@ def api_trades():
 def api_equity():
     rows = _db_query(
         "SELECT closed_at_utc, pnl_usd FROM trades "
-        "WHERE closed_at_utc IS NOT NULL ORDER BY closed_at_utc"
+        f"WHERE {VALID_CLOSED_TRADES_WHERE} ORDER BY closed_at_utc"
     )
     cumulative = 0.0
     points = []
@@ -121,27 +189,27 @@ def api_performance():
         "SELECT session, COUNT(*) as trades, "
         "SUM(CASE WHEN won=1 THEN 1 ELSE 0 END) as wins, "
         "ROUND(AVG(pnl_usd), 2) as avg_pnl "
-        "FROM trades WHERE closed_at_utc IS NOT NULL "
+        f"FROM trades WHERE {VALID_CLOSED_TRADES_WHERE} "
         "GROUP BY session ORDER BY trades DESC"
     )
     by_pair = _db_query(
         "SELECT symbol, COUNT(*) as trades, "
         "SUM(CASE WHEN won=1 THEN 1 ELSE 0 END) as wins, "
         "ROUND(AVG(pnl_usd), 2) as avg_pnl "
-        "FROM trades WHERE closed_at_utc IS NOT NULL "
+        f"FROM trades WHERE {VALID_CLOSED_TRADES_WHERE} "
         "GROUP BY symbol ORDER BY trades DESC"
     )
     by_day = _db_query(
         "SELECT day_of_week, COUNT(*) as trades, "
         "SUM(CASE WHEN won=1 THEN 1 ELSE 0 END) as wins "
-        "FROM trades WHERE closed_at_utc IS NOT NULL "
+        f"FROM trades WHERE {VALID_CLOSED_TRADES_WHERE} "
         "GROUP BY day_of_week ORDER BY day_of_week"
     )
     by_signal = _db_query(
         "SELECT signal_type, COUNT(*) as trades, "
         "SUM(CASE WHEN won=1 THEN 1 ELSE 0 END) as wins, "
         "ROUND(AVG(r_ratio), 2) as avg_r "
-        "FROM trades WHERE closed_at_utc IS NOT NULL "
+        f"FROM trades WHERE {VALID_CLOSED_TRADES_WHERE} "
         "GROUP BY signal_type ORDER BY trades DESC"
     )
     return jsonify({
@@ -149,6 +217,38 @@ def api_performance():
         "by_pair":    by_pair,
         "by_day":     by_day,
         "by_signal":  by_signal,
+    })
+
+
+@app.route("/api/calendar")
+def api_calendar():
+    latest_rows = _db_query(
+        "SELECT closed_at_utc "
+        f"FROM trades WHERE {VALID_CLOSED_TRADES_WHERE} "
+        "ORDER BY closed_at_utc DESC LIMIT 1"
+    )
+    latest_dt = _parse_iso_utc(latest_rows[0]["closed_at_utc"]) if latest_rows else datetime.now(timezone.utc)
+    year = int(request.args.get("year", latest_dt.year))
+    month = int(request.args.get("month", latest_dt.month))
+
+    rows = _db_query(
+        "SELECT SUBSTR(closed_at_utc, 1, 10) as day, "
+        "COUNT(*) as trades, "
+        "ROUND(SUM(pnl_usd), 2) as pnl "
+        f"FROM trades WHERE {VALID_CLOSED_TRADES_WHERE} "
+        "AND SUBSTR(closed_at_utc, 1, 7) = ? "
+        "GROUP BY SUBSTR(closed_at_utc, 1, 10) "
+        "ORDER BY day",
+        (f"{year:04d}-{month:02d}",),
+    )
+
+    month_matrix = pycalendar.Calendar(firstweekday=0).monthdayscalendar(year, month)
+    return jsonify({
+        "year": year,
+        "month": month,
+        "month_label": f"{pycalendar.month_name[month]} {year}",
+        "weeks": month_matrix,
+        "days": rows,
     })
 
 

@@ -11,7 +11,9 @@
   --bg:       #0d1117;
   --surface:  #161b22;
   --surface2: #1c2128;
+  --surface3: #0f1622;
   --border:   #30363d;
+  --border-soft:#233043;
   --text:     #e6edf3;
   --muted:    #7d8590;
   --green:    #3fb950;
@@ -23,15 +25,58 @@
   --green-bg: rgba(63,185,80,0.12);
   --red-bg:   rgba(248,81,73,0.12);
   --blue-bg:  rgba(88,166,255,0.12);
+  --glow-blue: rgba(88,166,255,.16);
+  --glow-green: rgba(63,185,80,.12);
+  --shadow-lg: 0 24px 80px rgba(0,0,0,.34);
+  --shadow-md: 0 14px 34px rgba(0,0,0,.24);
 }
 *{box-sizing:border-box;margin:0;padding:0}
 html{scroll-behavior:smooth}
-body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:14px;line-height:1.5}
-.wrap{max-width:1700px;margin:0 auto;padding:14px;display:flex;flex-direction:column;gap:14px}
+body{
+  min-height:100vh;
+  background:
+    radial-gradient(circle at top left, rgba(88,166,255,.14), transparent 30%),
+    radial-gradient(circle at top right, rgba(63,185,80,.10), transparent 24%),
+    linear-gradient(180deg, #0a0f17 0%, #0d1117 38%, #0c1016 100%);
+  color:var(--text);
+  font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  font-size:14px;
+  line-height:1.5;
+}
+body::before{
+  content:"";
+  position:fixed;
+  inset:0;
+  background-image: linear-gradient(rgba(255,255,255,.02) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.02) 1px, transparent 1px);
+  background-size: 80px 80px;
+  opacity:.16;
+  pointer-events:none;
+  mask-image: radial-gradient(circle at center, black 35%, transparent 88%);
+}
+.wrap{position:relative;max-width:1700px;margin:0 auto;padding:18px;display:flex;flex-direction:column;gap:16px}
 
 /* ---- CARDS ---- */
-.card{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px}
-.card-hdr{font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center}
+.card{
+  background:linear-gradient(180deg, rgba(28,33,40,.94), rgba(18,24,34,.96));
+  border:1px solid rgba(255,255,255,.06);
+  box-shadow:var(--shadow-md);
+  border-radius:14px;
+  padding:18px;
+  backdrop-filter: blur(10px);
+}
+.card-hdr{
+  font-size:11px;
+  font-weight:700;
+  letter-spacing:.1em;
+  text-transform:uppercase;
+  color:#8ca0bb;
+  margin-bottom:14px;
+  padding-bottom:10px;
+  border-bottom:1px solid rgba(255,255,255,.08);
+  display:flex;
+  justify-content:space-between;
+  align-items:center
+}
 
 /* ---- GRIDS ---- */
 .g2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
@@ -42,9 +87,36 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 .g31{display:grid;grid-template-columns:3fr 1fr;gap:14px}
 
 /* ---- HEADER ---- */
-#hdr{display:flex;align-items:center;justify-content:space-between;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px 20px}
-.logo-name{font-size:22px;font-weight:800;letter-spacing:.04em;color:var(--blue)}
-.logo-sub{font-size:11px;color:var(--muted)}
+#hdr{
+  position:relative;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  background:
+    radial-gradient(circle at 12% 10%, rgba(88,166,255,.18), transparent 24%),
+    linear-gradient(135deg, rgba(16,25,37,.96), rgba(21,28,36,.92));
+  border:1px solid rgba(255,255,255,.08);
+  border-radius:18px;
+  padding:18px 24px;
+  overflow:hidden;
+  box-shadow:var(--shadow-lg);
+}
+#hdr::after{
+  content:"";
+  position:absolute;
+  inset:0;
+  background:linear-gradient(90deg, rgba(88,166,255,.18), transparent 30%, transparent 70%, rgba(63,185,80,.10));
+  pointer-events:none;
+}
+.logo-name{
+  position:relative;
+  font-size:22px;
+  font-weight:900;
+  letter-spacing:.05em;
+  color:#6ba7ff;
+  text-shadow:0 0 28px rgba(88,166,255,.22);
+}
+.logo-sub{position:relative;font-size:11px;color:#8a98ab}
 .hdr-r{display:flex;align-items:center;gap:20px;font-size:12px;color:var(--muted)}
 
 /* ---- BADGES ---- */
@@ -57,22 +129,82 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
 
 /* ---- ACCOUNT BAR ---- */
-#acc-bar{display:grid;grid-template-columns:repeat(8,1fr);gap:1px;background:var(--border);border:1px solid var(--border);border-radius:8px;overflow:hidden}
-.acc-cell{background:var(--surface);padding:11px 15px}
-.acc-lbl{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px}
+#acc-bar{
+  display:grid;
+  grid-template-columns:repeat(8,1fr);
+  gap:1px;
+  background:rgba(255,255,255,.07);
+  border:1px solid rgba(255,255,255,.06);
+  border-radius:14px;
+  overflow:hidden;
+  box-shadow:var(--shadow-md);
+}
+.acc-cell{
+  background:linear-gradient(180deg, rgba(22,27,34,.98), rgba(18,23,31,.98));
+  padding:12px 16px;
+}
+.acc-lbl{font-size:10px;color:#8da0b7;text-transform:uppercase;letter-spacing:.08em;margin-bottom:2px}
 .acc-val{font-size:17px;font-weight:700;font-variant-numeric:tabular-nums}
 .acc-sub{font-size:11px;color:var(--muted)}
 
 /* ---- KPI CARDS ---- */
-.kpi{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:14px 16px}
-.kpi-lbl{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px}
+.kpi{
+  position:relative;
+  background:linear-gradient(180deg, rgba(28,33,40,.98), rgba(16,22,31,.98));
+  border:1px solid rgba(255,255,255,.06);
+  border-radius:14px;
+  padding:16px 18px;
+  box-shadow:var(--shadow-md);
+  overflow:hidden;
+}
+.kpi::before,
+.insight::before{
+  content:"";
+  position:absolute;
+  left:0;top:0;right:0;
+  height:2px;
+  background:linear-gradient(90deg, rgba(88,166,255,.72), rgba(63,185,80,.38), transparent);
+}
+.kpi-lbl{font-size:10px;color:#8ca0bb;text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px}
 .kpi-val{font-size:28px;font-weight:800;font-variant-numeric:tabular-nums;line-height:1.15}
 .kpi-sub{font-size:11px;color:var(--muted);margin-top:2px}
 
+/* ---- INSIGHT CARDS ---- */
+.insight{
+  position:relative;
+  background:
+    radial-gradient(circle at top right, rgba(88,166,255,.10), transparent 28%),
+    linear-gradient(180deg, rgba(26,32,40,.98), rgba(15,22,31,.98));
+  border:1px solid rgba(255,255,255,.06);
+  border-radius:14px;
+  padding:18px;
+  min-height:136px;
+  box-shadow:var(--shadow-md);
+  overflow:hidden;
+}
+.insight-top{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:10px}
+.insight-lbl{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em}
+.insight-val{font-size:22px;font-weight:800;line-height:1.15;font-variant-numeric:tabular-nums}
+.insight-sub{font-size:12px;color:var(--muted)}
+.insight-meta{display:flex;justify-content:space-between;gap:10px;font-size:11px;color:var(--muted);padding-top:10px;border-top:1px solid var(--border);margin-top:12px}
+.pill{display:inline-flex;align-items:center;gap:6px;padding:4px 9px;border-radius:999px;font-size:11px;font-weight:700}
+.pill-good{background:var(--green-bg);color:var(--green)}
+.pill-warn{background:rgba(210,153,34,.14);color:var(--yellow)}
+.pill-bad{background:var(--red-bg);color:var(--red)}
+
 /* ---- REGIME CARDS ---- */
-.reg-card{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 12px;display:flex;flex-direction:column;gap:5px}
+.reg-card{
+  background:linear-gradient(180deg, rgba(20,26,34,.98), rgba(13,19,27,.98));
+  border:1px solid rgba(255,255,255,.06);
+  border-radius:12px;
+  padding:12px 13px;
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+  box-shadow:0 8px 22px rgba(0,0,0,.18);
+}
 .reg-sym{font-size:13px;font-weight:700;letter-spacing:.02em}
-.reg-badge{font-size:10px;font-weight:600;padding:2px 8px;border-radius:12px;text-align:center;text-transform:uppercase;letter-spacing:.05em}
+.reg-badge{font-size:10px;font-weight:700;padding:3px 8px;border-radius:12px;text-align:center;text-transform:uppercase;letter-spacing:.07em}
 .r-trend{background:var(--green-bg);color:var(--green);border:1px solid rgba(63,185,80,.35)}
 .r-trendx{background:rgba(251,143,68,.14);color:var(--orange);border:1px solid rgba(251,143,68,.35)}
 .r-range{background:var(--blue-bg);color:var(--blue);border:1px solid rgba(88,166,255,.35)}
@@ -80,7 +212,7 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 .r-chaos{background:var(--red-bg);color:var(--red);border:1px solid rgba(248,81,73,.35)}
 .r-unk{background:rgba(125,133,144,.1);color:var(--muted);border:1px solid var(--border)}
 .reg-stats{display:flex;justify-content:space-between;font-size:11px;color:var(--muted)}
-.conf-bar{height:3px;background:var(--border);border-radius:2px;overflow:hidden;margin-top:1px}
+.conf-bar{height:4px;background:rgba(255,255,255,.07);border-radius:999px;overflow:hidden;margin-top:2px}
 .conf-fill{height:100%;background:var(--blue);border-radius:2px;transition:width .5s}
 
 /* ---- TABLES ---- */
@@ -97,7 +229,7 @@ td{padding:7px 11px;white-space:nowrap;font-variant-numeric:tabular-nums}
 .cg{color:var(--green)}.cr{color:var(--red)}.cb{color:var(--blue)}.cy{color:var(--yellow)}.co{color:var(--orange)}.cp{color:var(--purple)}.cm{color:var(--muted)}
 
 /* ---- TAGS ---- */
-.tag{display:inline-block;padding:2px 7px;border-radius:4px;font-size:11px;font-weight:600}
+.tag{display:inline-block;padding:3px 8px;border-radius:999px;font-size:11px;font-weight:700;letter-spacing:.02em}
 .t-buy{background:var(--green-bg);color:var(--green)}
 .t-sell{background:var(--red-bg);color:var(--red)}
 .t-win{background:var(--green-bg);color:var(--green)}
@@ -114,7 +246,7 @@ td{padding:7px 11px;white-space:nowrap;font-variant-numeric:tabular-nums}
 .cb-hdr{display:flex;justify-content:space-between;font-size:12px}
 .cb-lbl{color:var(--muted)}
 .cb-num{font-weight:600;font-variant-numeric:tabular-nums}
-.cb-track{height:7px;background:var(--border);border-radius:4px;overflow:hidden}
+.cb-track{height:8px;background:rgba(255,255,255,.07);border-radius:999px;overflow:hidden}
 .cb-fill{height:100%;border-radius:4px;transition:width .5s}
 .fill-ok{background:var(--green)}.fill-warn{background:var(--yellow)}.fill-bad{background:var(--red)}
 .cool-box{margin-top:6px;padding:8px 12px;border-radius:6px;font-size:12px;font-weight:600;text-align:center}
@@ -125,18 +257,23 @@ td{padding:7px 11px;white-space:nowrap;font-variant-numeric:tabular-nums}
 .prf-row{display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--border)}
 .prf-row:last-child{border-bottom:none}
 .prf-lbl{width:82px;font-size:13px;font-weight:600;flex-shrink:0;overflow:hidden;text-overflow:ellipsis}
-.prf-bar-w{flex:1;height:13px;background:var(--border);border-radius:3px;overflow:hidden}
+.prf-bar-w{flex:1;height:13px;background:rgba(255,255,255,.07);border-radius:999px;overflow:hidden}
 .prf-bar-f{height:100%;border-radius:3px;transition:width .5s}
 .prf-stat{width:130px;text-align:right;font-size:11px;color:var(--muted);flex-shrink:0;font-variant-numeric:tabular-nums}
 
 /* ---- WEIGHT BARS ---- */
 .wt-row{display:flex;align-items:center;gap:10px;margin-bottom:9px}
 .wt-lbl{width:155px;font-size:12px;flex-shrink:0;text-transform:capitalize}
-.wt-bar-w{flex:1;height:18px;background:var(--border);border-radius:4px;overflow:hidden}
+.wt-bar-w{flex:1;height:18px;background:rgba(255,255,255,.07);border-radius:999px;overflow:hidden}
 .wt-bar-f{height:100%;border-radius:4px;transition:width .5s}
 .wt-num{width:38px;text-align:right;font-size:12px;font-weight:600;font-variant-numeric:tabular-nums}
 .gate-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
-.gate-box{background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:10px}
+.gate-box{
+  background:linear-gradient(180deg, rgba(23,29,38,.95), rgba(17,23,32,.95));
+  border:1px solid rgba(255,255,255,.06);
+  border-radius:10px;
+  padding:12px;
+}
 .gate-lbl{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px}
 .gate-val{font-size:22px;font-weight:800;font-variant-numeric:tabular-nums}
 .gate-sub{font-size:11px;color:var(--muted);margin-top:2px}
@@ -146,12 +283,52 @@ td{padding:7px 11px;white-space:nowrap;font-variant-numeric:tabular-nums}
 .mini-key{font-size:12px;font-weight:600}
 .mini-val{font-size:11px;color:var(--muted);text-align:right}
 
+/* ---- CALENDAR ---- */
+.calendar-shell{display:flex;flex-direction:column;gap:10px}
+.calendar-head,.calendar-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:8px}
+.calendar-dow{font-size:10px;color:#8ca0bb;text-transform:uppercase;letter-spacing:.08em;padding:0 4px}
+.cal-cell{
+  min-height:84px;
+  border-radius:12px;
+  border:1px solid rgba(255,255,255,.06);
+  background:linear-gradient(180deg, rgba(20,26,34,.9), rgba(14,19,27,.95));
+  padding:10px;
+  display:flex;
+  flex-direction:column;
+  justify-content:space-between;
+  gap:8px;
+}
+.cal-empty{opacity:.28}
+.cal-day{font-size:12px;font-weight:700;color:#cbd5e1}
+.cal-pnl{font-size:15px;font-weight:800;font-variant-numeric:tabular-nums}
+.cal-meta{font-size:10px;color:var(--muted)}
+.cal-win{background:linear-gradient(180deg, rgba(63,185,80,.16), rgba(18,25,21,.96));border-color:rgba(63,185,80,.24)}
+.cal-loss{background:linear-gradient(180deg, rgba(248,81,73,.16), rgba(28,19,21,.96));border-color:rgba(248,81,73,.22)}
+.cal-flat{background:linear-gradient(180deg, rgba(88,166,255,.10), rgba(15,22,31,.95));border-color:rgba(88,166,255,.16)}
+
 /* ---- CHART ---- */
 .chart-box{position:relative;height:260px}
 .chart-sm{position:relative;height:200px}
 
 /* ---- LOG ---- */
-#log-box{background:#090d13;border:1px solid var(--border);border-radius:6px;padding:12px;height:230px;overflow-y:auto;font-family:'Cascadia Code','Consolas','Courier New',monospace;font-size:11.5px;line-height:1.65;color:var(--muted)}
+#log-box{
+  background:linear-gradient(180deg, #0a0f16, #080c12);
+  border:1px solid rgba(255,255,255,.06);
+  border-radius:10px;
+  padding:12px;
+  height:230px;
+  overflow-y:auto;
+  font-family:'Cascadia Code','Consolas','Courier New',monospace;
+  font-size:11.5px;
+  line-height:1.65;
+  color:var(--muted)
+}
+.kpi,.insight,.reg-card,.gate-box{transition:transform .18s ease, border-color .18s ease, box-shadow .18s ease}
+.kpi:hover,.insight:hover,.reg-card:hover,.gate-box:hover{
+  transform:translateY(-2px);
+  border-color:rgba(88,166,255,.22);
+  box-shadow:0 18px 36px rgba(0,0,0,.22);
+}
 .ll{display:block}
 .li{color:#79c0ff}.lw{color:var(--yellow)}.le{color:var(--red)}.lc{color:var(--red);font-weight:700}
 
@@ -212,6 +389,19 @@ td{padding:7px 11px;white-space:nowrap;font-variant-numeric:tabular-nums}
     <div class="kpi"><div class="kpi-lbl">Daily Drawdown</div><div class="kpi-val" id="k-dd">—</div><div class="kpi-sub">hard limit: 3%</div></div>
   </div>
 
+  <!-- ===== INSIGHT CARDS ===== -->
+  <div class="g3">
+    <div class="insight" id="last-trade-card">
+      <div class="cm" style="font-size:12px">Loading last trade...</div>
+    </div>
+    <div class="insight" id="data-quality-card">
+      <div class="cm" style="font-size:12px">Checking data quality...</div>
+    </div>
+    <div class="insight" id="market-pulse-card">
+      <div class="cm" style="font-size:12px">Reading market pulse...</div>
+    </div>
+  </div>
+
   <!-- ===== REGIME MONITOR ===== -->
   <div class="card">
     <div class="card-hdr"><span>Regime Monitor</span><span id="reg-ts" style="font-size:10px;font-weight:400;text-transform:none;letter-spacing:0">—</span></div>
@@ -258,6 +448,14 @@ td{padding:7px 11px;white-space:nowrap;font-variant-numeric:tabular-nums}
     <div class="card">
       <div class="card-hdr">Win Rate by Pair</div>
       <div id="prf-pair"><div class="cm" style="font-size:12px;padding:8px 0">No data yet</div></div>
+    </div>
+  </div>
+
+  <!-- ===== PNL CALENDAR ===== -->
+  <div class="card">
+    <div class="card-hdr"><span id="calendar-title">P&amp;L Calendar</span><span class="cm" style="font-size:10px;text-transform:none;letter-spacing:0">daily realized result</span></div>
+    <div id="calendar-body" class="calendar-shell">
+      <div class="cm" style="font-size:12px;padding:8px 0">Loading calendar...</div>
     </div>
   </div>
 
@@ -470,6 +668,7 @@ async function fetchOverview() {
     renderHeader(d);
     renderAccBar(d);
     renderKpis(d);
+    renderInsights(d);
     renderRegimes(d);
     renderPositions(d);
     renderCB(d);
@@ -482,10 +681,14 @@ function renderHeader(d) {
   const badge = $$('status-badge');
   const dot   = badge.querySelector('.dot');
   const txt   = $$('status-txt');
-  if (d.bot_running === true) {
+  if (d.bot_running_effective === true) {
     badge.className = 'badge b-run';
     txt.textContent = 'RUNNING';
     dot.classList.add('pulse');
+  } else if (d.bot_running === true && d.status_fresh === false) {
+    badge.className = 'badge b-off';
+    txt.textContent = 'STALE';
+    dot.classList.remove('pulse');
   } else if (d.timestamp) {
     badge.className = 'badge b-off';
     txt.textContent = 'OFFLINE';
@@ -526,7 +729,7 @@ function renderAccBar(d) {
   const np = (d.open_positions || []).length;
   setTxt('a-op', np);
 
-  const tot = stats.total_trades || 0;
+  const tot = stats.valid_closed_trades ?? stats.total_trades ?? 0;
   setTxt('a-tr', tot);
 
   if (stats.win_rate != null) {
@@ -548,15 +751,16 @@ function renderKpis(d) {
   const cb    = d.circuit_breakers || {};
 
   const wr  = stats.win_rate;
-  const tot = stats.total_trades || 0;
+  const tot = stats.valid_closed_trades ?? stats.total_trades ?? 0;
   const tp  = stats.total_pnl_usd;
   const cl  = cb.consecutive_losses != null ? parseInt(cb.consecutive_losses) : 0;
   const dl  = cb.daily_loss_pct     != null ? parseFloat(cb.daily_loss_pct)   : null;
+  const anomalies = stats.anomaly_trades || 0;
 
   if (wr != null) {
     setTxt('k-wr', (wr * 100).toFixed(1) + '%', 'kpi-val ' + (wr >= 0.5 ? 'cg' : 'cr'));
   }
-  setTxt('k-wr-sub', tot + ' trades');
+  setTxt('k-wr-sub', anomalies ? `${tot} trades (${anomalies} unresolved hidden)` : `${tot} trades`);
 
   if (tp != null) {
     setTxt('k-pnl', fmtMoney(tp), 'kpi-val ' + (tp >= 0 ? 'cg' : 'cr'));
@@ -566,6 +770,88 @@ function renderKpis(d) {
 
   if (dl != null) {
     setTxt('k-dd', (dl * 100).toFixed(1) + '%', 'kpi-val ' + (dl >= 0.025 ? 'cr' : dl >= 0.015 ? 'cy' : 'cg'));
+  }
+}
+
+function renderInsights(d) {
+  const stats = d.db_stats || {};
+  const last = d.last_valid_trade || null;
+  const pulse = d.market_pulse || {};
+
+  const lastEl = $$('last-trade-card');
+  if (lastEl) {
+    if (!last) {
+      lastEl.innerHTML = `<div class="insight-top">
+  <div>
+    <div class="insight-lbl">Last Trade</div>
+    <div class="insight-val cm">No closed trade yet</div>
+    <div class="insight-sub">The first valid close will appear here.</div>
+  </div>
+</div>`;
+    } else {
+      const pnl = parseFloat(last.pnl_usd || 0);
+      const won = !!last.won;
+      const dirTag = last.direction === 'BUY' ? 't-buy' : 't-sell';
+      const stamp = last.closed_at_utc ? timeAgo(last.closed_at_utc) : 'time unavailable';
+      lastEl.innerHTML = `<div class="insight-top">
+  <div>
+    <div class="insight-lbl">Last Trade</div>
+    <div class="insight-val ${won ? 'cg' : 'cr'}">${last.symbol} ${last.direction}</div>
+    <div class="insight-sub">${last.signal_type || 'Unknown setup'} • ${stamp}</div>
+  </div>
+  <span class="pill ${won ? 'pill-good' : 'pill-bad'}">${won ? 'WIN' : 'LOSS'}</span>
+</div>
+<div class="insight-val ${pnl >= 0 ? 'cg' : 'cr'}">${fmtMoney(pnl)}</div>
+<div class="insight-meta">
+  <span><span class="tag ${dirTag}">${last.direction}</span></span>
+  <span>Conf ${last.confidence ? parseFloat(last.confidence).toFixed(0) : '—'}</span>
+  <span>${last.session || '—'}</span>
+</div>`;
+    }
+  }
+
+  const dqEl = $$('data-quality-card');
+  if (dqEl) {
+    const anomalies = stats.anomaly_trades || 0;
+    const valid = stats.valid_closed_trades ?? stats.total_trades ?? 0;
+    const label = anomalies ? 'Needs attention' : 'Healthy';
+    const pill = anomalies ? 'pill-warn' : 'pill-good';
+    dqEl.innerHTML = `<div class="insight-top">
+  <div>
+    <div class="insight-lbl">Data Quality</div>
+    <div class="insight-val ${anomalies ? 'cy' : 'cg'}">${valid}</div>
+    <div class="insight-sub">valid closed trades in analytics</div>
+  </div>
+  <span class="pill ${pill}">${label}</span>
+</div>
+<div class="insight-val ${anomalies ? 'cy' : 'cg'}">${anomalies}</div>
+<div class="insight-sub">unresolved placeholder closes hidden from charts and KPIs</div>
+<div class="insight-meta">
+  <span>Visible P&amp;L ${fmtMoney(stats.total_pnl_usd || 0)}</span>
+  <span>Win rate ${stats.win_rate != null ? (stats.win_rate * 100).toFixed(1) + '%' : '—'}</span>
+</div>`;
+  }
+
+  const pulseEl = $$('market-pulse-card');
+  if (pulseEl) {
+    const active = pulse.active_setups || 0;
+    const blocked = pulse.blocked_setups || 0;
+    const quiet = pulse.quiet_pairs || 0;
+    const modeCls = active > 0 ? 'pill-good' : blocked > 0 || quiet > 0 ? 'pill-warn' : 'pill-bad';
+    const modeTxt = active > 0 ? 'Live opportunities' : blocked > 0 ? 'Filtered market' : 'Quiet market';
+    pulseEl.innerHTML = `<div class="insight-top">
+  <div>
+    <div class="insight-lbl">Market Pulse</div>
+    <div class="insight-val cb">${active}</div>
+    <div class="insight-sub">pairs currently not stuck at PA-no-signal</div>
+  </div>
+  <span class="pill ${modeCls}">${modeTxt}</span>
+</div>
+<div class="insight-meta">
+  <span>Blocked ${blocked}</span>
+  <span>Quiet ${quiet}</span>
+  <span>Chaotic ${pulse.chaotic_pairs || 0}</span>
+</div>`;
   }
 }
 
@@ -892,6 +1178,55 @@ function renderSigRows(rows) {
 }
 
 // ===================================================================
+// CALENDAR
+// ===================================================================
+async function fetchCalendar() {
+  try {
+    const r = await fetch('/api/calendar');
+    if (!r.ok) return;
+    const data = await r.json();
+    renderCalendar(data);
+  } catch(e) { console.error('calendar:', e); }
+}
+
+function renderCalendar(data) {
+  const body = $$('calendar-body');
+  const title = $$('calendar-title');
+  if (!body || !data) return;
+
+  title.textContent = `P&L Calendar — ${data.month_label || ''}`.trim();
+
+  const lookup = {};
+  (data.days || []).forEach(d => { lookup[d.day] = d; });
+  const dow = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+  const head = `<div class="calendar-head">${dow.map(label => `<div class="calendar-dow">${label}</div>`).join('')}</div>`;
+
+  const weeks = (data.weeks || []).map(week => week.map(day => {
+    if (!day) {
+      return `<div class="cal-cell cal-empty"></div>`;
+    }
+    const iso = `${data.year}-${String(data.month).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+    const row = lookup[iso];
+    if (!row) {
+      return `<div class="cal-cell cal-flat">
+  <div class="cal-day">${day}</div>
+  <div class="cal-meta">No closes</div>
+</div>`;
+    }
+    const pnl = parseFloat(row.pnl || 0);
+    const trades = parseInt(row.trades || 0);
+    const cls = pnl > 0 ? 'cal-win' : pnl < 0 ? 'cal-loss' : 'cal-flat';
+    return `<div class="cal-cell ${cls}">
+  <div class="cal-day">${day}</div>
+  <div class="cal-pnl ${pnl >= 0 ? 'cg' : 'cr'}">${fmtMoney(pnl)}</div>
+  <div class="cal-meta">${trades} trade${trades === 1 ? '' : 's'}</div>
+</div>`;
+  }).join('')).map(weekHtml => `<div class="calendar-grid">${weekHtml}</div>`).join('');
+
+  body.innerHTML = head + weeks;
+}
+
+// ===================================================================
 // WEIGHTS
 // ===================================================================
 async function fetchWeights() {
@@ -908,13 +1243,17 @@ const WT_COLORS = ['#58a6ff','#3fb950','#fb8f44','#d29922','#bc8cff','#f85149','
 function renderWeights(w) {
   const el = $$('wt-body');
   if (!el) return;
-  const keys = Object.keys(w);
+  const metaAdjusted = w.adjusted_at_utc || null;
+  const metaTradeCount = w.trade_count != null ? parseInt(w.trade_count) : null;
+  const keys = Object.keys(w).filter(k =>
+    !['adjusted_at_utc', 'trade_count'].includes(k) && Number.isFinite(parseFloat(w[k]))
+  );
   if (!keys.length) {
     el.innerHTML = '<div class="cm" style="font-size:12px;padding:8px 0">No weights yet — runs after 20+ trades</div>';
     return;
   }
   const maxW = 35;
-  el.innerHTML = keys.map((k, i) => {
+  const rows = keys.map((k, i) => {
     const v   = parseFloat(w[k]) || 0;
     const pct = Math.min(100, (v / maxW) * 100);
     const col = WT_COLORS[i % WT_COLORS.length];
@@ -924,6 +1263,11 @@ function renderWeights(w) {
   <div class="wt-num">${v}</div>
 </div>`;
   }).join('');
+  const meta = `<div class="cm" style="font-size:11px;padding-top:6px">
+    ${metaAdjusted ? `Updated ${timeAgo(metaAdjusted)}` : 'Update time unavailable'}
+    ${metaTradeCount != null ? `&nbsp;&middot;&nbsp; learned from ${metaTradeCount} trades` : ''}
+  </div>`;
+  el.innerHTML = rows + meta;
 }
 
 // ===================================================================
@@ -969,6 +1313,7 @@ fetchOverview();
 fetchTrades();
 fetchEquity();
 fetchPerformance();
+fetchCalendar();
 fetchWeights();
 fetchLogs();
 
@@ -976,6 +1321,7 @@ setInterval(fetchOverview,    15000);
 setInterval(fetchTrades,      30000);
 setInterval(fetchEquity,      30000);
 setInterval(fetchPerformance, 60000);
+setInterval(fetchCalendar,    60000);
 setInterval(fetchWeights,     60000);
 setInterval(fetchLogs,        15000);
 </script>
