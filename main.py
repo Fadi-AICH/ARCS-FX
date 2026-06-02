@@ -193,8 +193,8 @@ def _archive_previous_run_log(path: Path) -> None:
 
 def _archive_previous_run_logs() -> None:
     """Start each bot run with fresh live logs and archive the previous run."""
-    logs_dir = Path("logs")
-    logs_dir.mkdir(exist_ok=True)
+    logs_dir = Path("logs/fx")
+    logs_dir.mkdir(parents=True, exist_ok=True)
     _archive_previous_run_log(logs_dir / "arcs_fx.log")
     _archive_previous_run_log(logs_dir / "trading_events.log")
 
@@ -222,7 +222,7 @@ def _setup_logging() -> None:
     root.addHandler(ch)
 
     fh = RotatingFileHandler(
-        "logs/arcs_fx.log",
+        "logs/fx/arcs_fx.log",
         maxBytes=10 * 1024 * 1024,
         backupCount=5,
         encoding="utf-8",
@@ -232,7 +232,7 @@ def _setup_logging() -> None:
     root.addHandler(fh)
 
     trading_fh = RotatingFileHandler(
-        "logs/trading_events.log",
+        "logs/fx/trading_events.log",
         maxBytes=5 * 1024 * 1024,
         backupCount=5,
         encoding="utf-8",

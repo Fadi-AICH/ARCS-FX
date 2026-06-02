@@ -22,4 +22,17 @@ data/weights_history.jsonl
 logs/arcs_fx.log
 logs/trading_events.log
 logs/archive/
+logs/fx/
+
+# Crypto weekend runtime
+crypto_weekend/data/
+crypto_weekend/logs/
+
+# Dev notes
+Fixes.md
+
+# Large CFTC COT data files
+FUT86_16.txt
+annual.txt
+*.txt
 

@@ -25,6 +25,7 @@ class Context:
     h1_adx: float
     m15_regime: str
     m15_bias: str
+    m15_adx: float
     summary: str
 
 
@@ -87,7 +88,7 @@ def analyze_context(symbol: str, h1: pd.DataFrame, m15: pd.DataFrame) -> Context
         m15_regime = "TRANSITION"
 
     summary = f"H1 {h1_regime}/{h1_bias} ADX {h1_adx:.1f} | M15 {m15_regime}/{m15_bias} ADX {m15_adx:.1f}"
-    return Context(symbol=symbol, h1_regime=h1_regime, h1_bias=h1_bias, h1_adx=h1_adx, m15_regime=m15_regime, m15_bias=m15_bias, summary=summary)
+    return Context(symbol=symbol, h1_regime=h1_regime, h1_bias=h1_bias, h1_adx=h1_adx, m15_regime=m15_regime, m15_bias=m15_bias, m15_adx=m15_adx, summary=summary)
 
 
 def find_signal(symbol: str, h1: pd.DataFrame, m15: pd.DataFrame, m1: pd.DataFrame, spread_units: float) -> Signal:
@@ -122,11 +123,21 @@ def find_signal(symbol: str, h1: pd.DataFrame, m15: pd.DataFrame, m1: pd.DataFra
     breakout_impulse = abs(current - prev_close) / max(m1_range_mean, unit)
     ema_slope = abs(float(ema9.iloc[-1]) - float(ema9.iloc[-4])) / max(unit, atr_m1)
 
-    bias = context.m15_bias if context.m15_regime == "TREND" else context.h1_bias
-    if context.h1_regime == "RANGE" and context.m15_regime == "TREND":
-        bias = context.m15_bias
-    if context.h1_bias != context.m15_bias and context.m15_regime == "TREND":
-        bias = context.m15_bias
+    strict_trend_ok = (
+        context.h1_regime == "TREND"
+        and context.m15_regime == "TREND"
+        and context.h1_bias == context.m15_bias
+        and context.h1_bias in {"BULLISH", "BEARISH"}
+        and context.h1_adx >= 28.0
+        and context.m15_adx >= 24.0
+    )
+    if not strict_trend_ok:
+        return Signal(
+            has_signal=False,
+            notes=f"{context.summary} | blocked by strict trend filter",
+        )
+
+    bias = context.h1_bias
 
     # Fast flow scalp for weekend momentum continuation.
     if bias == "BULLISH":
@@ -136,11 +147,11 @@ def find_signal(symbol: str, h1: pd.DataFrame, m15: pd.DataFrame, m1: pd.DataFra
             and current > prev_high
             and current > prev_close
         )
-        if flow_ok and body_ratio >= 0.24 and vol_ratio >= 0.85:
+        if flow_ok and body_ratio >= 0.34 and vol_ratio >= 1.05 and breakout_impulse >= 0.55:
             entry = current
             sl = min(float(m1_low.iloc[-3:-1].min()), float(ema21.iloc[-1]) - atr_m1 * 0.25)
             tp = entry + max((entry - sl) * 1.1, atr_m1 * 2.0)
-            conf = 47 + min(vol_ratio * 7, 10) + min(ema_slope * 8, 6) + min(breakout_impulse * 5, 6)
+            conf = 55 + min(vol_ratio * 7, 10) + min(ema_slope * 8, 6) + min(breakout_impulse * 5, 6)
             if context.m15_regime == "TREND":
                 conf += 5
             return _signal("BUY", "SCALP_FLOW", conf, entry, sl, tp, context, spread_units)
@@ -152,134 +163,52 @@ def find_signal(symbol: str, h1: pd.DataFrame, m15: pd.DataFrame, m1: pd.DataFra
             and current < prev_low
             and current < prev_close
         )
-        if flow_ok and body_ratio >= 0.24 and vol_ratio >= 0.85:
+        if flow_ok and body_ratio >= 0.34 and vol_ratio >= 1.05 and breakout_impulse >= 0.55:
             entry = current
             sl = max(float(m1_high.iloc[-3:-1].max()), float(ema21.iloc[-1]) + atr_m1 * 0.25)
             tp = entry - max((sl - entry) * 1.1, atr_m1 * 2.0)
-            conf = 47 + min(vol_ratio * 7, 10) + min(ema_slope * 8, 6) + min(breakout_impulse * 5, 6)
+            conf = 55 + min(vol_ratio * 7, 10) + min(ema_slope * 8, 6) + min(breakout_impulse * 5, 6)
             if context.m15_regime == "TREND":
                 conf += 5
             return _signal("SELL", "SCALP_FLOW", conf, entry, sl, tp, context, spread_units)
 
-    # Quick reversal after extended one-minute exhaustion.
-    if bias == "BULLISH":
-        reversal_ok = current > prev_high and current_open < prev_close and float(m1_low.iloc[-2]) < float(ema21.iloc[-1])
-        if reversal_ok and body_ratio >= 0.28 and breakout_impulse >= 0.55:
-            entry = current
-            sl = min(float(m1_low.iloc[-4:-1].min()), current_low - atr_m1 * 0.2)
-            tp = entry + max((entry - sl) * 1.2, atr_m1 * 2.3)
-            conf = 46 + min(vol_ratio * 6, 9) + min(breakout_impulse * 7, 8)
-            return _signal("BUY", "SCALP_FLIP", conf, entry, sl, tp, context, spread_units)
-
-    if bias == "BEARISH":
-        reversal_ok = current < prev_low and current_open > prev_close and float(m1_high.iloc[-2]) > float(ema21.iloc[-1])
-        if reversal_ok and body_ratio >= 0.28 and breakout_impulse >= 0.55:
-            entry = current
-            sl = max(float(m1_high.iloc[-4:-1].max()), current_high + atr_m1 * 0.2)
-            tp = entry - max((sl - entry) * 1.2, atr_m1 * 2.3)
-            conf = 46 + min(vol_ratio * 6, 9) + min(breakout_impulse * 7, 8)
-            return _signal("SELL", "SCALP_FLIP", conf, entry, sl, tp, context, spread_units)
-
     # Momentum pulse scalp for fast weekend bursts.
     if bias == "BULLISH":
         pulse_ok = current > recent_high and current > float(ema9.iloc[-1]) and float(ema9.iloc[-1]) >= float(ema21.iloc[-1])
-        if pulse_ok and body_ratio >= 0.33 and vol_ratio >= 0.95 and breakout_impulse >= 0.8:
+        if pulse_ok and body_ratio >= 0.42 and vol_ratio >= 1.20 and breakout_impulse >= 1.0:
             entry = current
             sl = min(float(m1_low.iloc[-4:-1].min()), float(ema21.iloc[-1]) - atr_m1 * 0.35)
             tp = entry + max((entry - sl) * 1.35, atr_m1 * 2.8)
-            conf = 49 + min(vol_ratio * 9, 12) + min(ema_slope * 10, 7) + (6 if context.m15_regime == "TREND" else 0)
-            if conf >= MIN_CONFIDENCE - 4:
+            conf = 58 + min(vol_ratio * 9, 12) + min(ema_slope * 10, 7) + 6
+            if conf >= MIN_CONFIDENCE:
                 return _signal("BUY", "SCALP_MOMENTUM_PULSE", conf, entry, sl, tp, context, spread_units)
 
     if bias == "BEARISH":
         pulse_ok = current < recent_low and current < float(ema9.iloc[-1]) and float(ema9.iloc[-1]) <= float(ema21.iloc[-1])
-        if pulse_ok and body_ratio >= 0.33 and vol_ratio >= 0.95 and breakout_impulse >= 0.8:
+        if pulse_ok and body_ratio >= 0.42 and vol_ratio >= 1.20 and breakout_impulse >= 1.0:
             entry = current
             sl = max(float(m1_high.iloc[-4:-1].max()), float(ema21.iloc[-1]) + atr_m1 * 0.35)
             tp = entry - max((sl - entry) * 1.35, atr_m1 * 2.8)
-            conf = 49 + min(vol_ratio * 9, 12) + min(ema_slope * 10, 7) + (6 if context.m15_regime == "TREND" else 0)
-            if conf >= MIN_CONFIDENCE - 4:
+            conf = 58 + min(vol_ratio * 9, 12) + min(ema_slope * 10, 7) + 6
+            if conf >= MIN_CONFIDENCE:
                 return _signal("SELL", "SCALP_MOMENTUM_PULSE", conf, entry, sl, tp, context, spread_units)
-
-    # EMA snapback continuation for quick re-entries after shallow pullbacks.
-    if bias == "BULLISH":
-        snap_ok = current > float(ema9.iloc[-1]) and current_open <= float(ema9.iloc[-1]) + atr_m1 * 0.15
-        pullback_ok = float(m1_low.iloc[-3:-1].min()) <= float(ema21.iloc[-1]) + atr_m1 * 0.4
-        if snap_ok and pullback_ok and body_ratio >= 0.3:
-            entry = current
-            sl = min(float(m1_low.iloc[-5:-1].min()), float(ema21.iloc[-1]) - atr_m1 * 0.4)
-            tp = entry + max((entry - sl) * 1.25, atr_m1 * 2.4)
-            conf = 48 + min(vol_ratio * 7, 10) + (7 if context.m15_regime == "TREND" else 3)
-            if conf >= MIN_CONFIDENCE - 5:
-                return _signal("BUY", "SCALP_EMA_SNAP", conf, entry, sl, tp, context, spread_units)
-
-    if bias == "BEARISH":
-        snap_ok = current < float(ema9.iloc[-1]) and current_open >= float(ema9.iloc[-1]) - atr_m1 * 0.15
-        pullback_ok = float(m1_high.iloc[-3:-1].max()) >= float(ema21.iloc[-1]) - atr_m1 * 0.4
-        if snap_ok and pullback_ok and body_ratio >= 0.3:
-            entry = current
-            sl = max(float(m1_high.iloc[-5:-1].max()), float(ema21.iloc[-1]) + atr_m1 * 0.4)
-            tp = entry - max((sl - entry) * 1.25, atr_m1 * 2.4)
-            conf = 48 + min(vol_ratio * 7, 10) + (7 if context.m15_regime == "TREND" else 3)
-            if conf >= MIN_CONFIDENCE - 5:
-                return _signal("SELL", "SCALP_EMA_SNAP", conf, entry, sl, tp, context, spread_units)
-
-    # Trend reclaim scalp
-    if bias == "BULLISH":
-        trend_ok = float(ema9.iloc[-1]) > float(ema21.iloc[-1]) and float(ema21.iloc[-1]) >= float(ema50.iloc[-1]) - atr_m1 * 0.25
-        reclaim_ok = current > recent_high or (current > float(ema9.iloc[-1]) and current_low <= float(ema21.iloc[-1]) + atr_m1 * 0.6)
-        if trend_ok and reclaim_ok and body_ratio >= 0.45:
-            entry = current
-            sl = min(recent_low, float(m1_low.iloc[-6:-1].min())) - atr_m1 * 0.6
-            tp = entry + max((entry - sl) * 1.9, atr_m1 * 4)
-            conf = 52 + min(vol_ratio * 8, 12) + (6 if context.m15_regime == "TREND" else 0) + (5 if current > recent_high else 0)
-            if conf >= MIN_CONFIDENCE:
-                return _signal("BUY", "SCALP_RECLAIM", conf, entry, sl, tp, context, spread_units)
-
-    if bias == "BEARISH":
-        trend_ok = float(ema9.iloc[-1]) < float(ema21.iloc[-1]) and float(ema21.iloc[-1]) <= float(ema50.iloc[-1]) + atr_m1 * 0.25
-        reclaim_ok = current < recent_low or (current < float(ema9.iloc[-1]) and current_high >= float(ema21.iloc[-1]) - atr_m1 * 0.6)
-        if trend_ok and reclaim_ok and body_ratio >= 0.45:
-            entry = current
-            sl = max(recent_high, float(m1_high.iloc[-6:-1].max())) + atr_m1 * 0.6
-            tp = entry - max((sl - entry) * 1.9, atr_m1 * 4)
-            conf = 52 + min(vol_ratio * 8, 12) + (6 if context.m15_regime == "TREND" else 0) + (5 if current < recent_low else 0)
-            if conf >= MIN_CONFIDENCE:
-                return _signal("SELL", "SCALP_RECLAIM", conf, entry, sl, tp, context, spread_units)
-
-    # Sweep reversal scalp
-    if current_low < sweep_low and current > sweep_low and current > current_open and body_ratio >= 0.35:
-        entry = current
-        sl = current_low - atr_m1 * 0.45
-        tp = entry + max((entry - sl) * 1.6, atr_m1 * 3.2)
-        conf = 50 + min(vol_ratio * 8, 12) + (6 if context.h1_regime == "RANGE" else 0)
-        if conf >= MIN_CONFIDENCE:
-            return _signal("BUY", "SCALP_SWEEP", conf, entry, sl, tp, context, spread_units)
-
-    if current_high > sweep_high and current < sweep_high and current < current_open and body_ratio >= 0.35:
-        entry = current
-        sl = current_high + atr_m1 * 0.45
-        tp = entry - max((sl - entry) * 1.6, atr_m1 * 3.2)
-        conf = 50 + min(vol_ratio * 8, 12) + (6 if context.h1_regime == "RANGE" else 0)
-        if conf >= MIN_CONFIDENCE:
-            return _signal("SELL", "SCALP_SWEEP", conf, entry, sl, tp, context, spread_units)
 
     # Breakout burst
     m15_range_high = float(m15["high"].iloc[-M15_RANGE_LOOKBACK:-1].max())
     m15_range_low = float(m15["low"].iloc[-M15_RANGE_LOOKBACK:-1].min())
-    if current > m15_range_high and body_ratio >= 0.55 and vol_ratio >= 1.15:
+    if current > m15_range_high and body_ratio >= 0.65 and vol_ratio >= 1.35 and breakout_impulse >= 1.1:
         entry = current
         sl = min(recent_low, m15_range_high - atr_m1 * 0.8)
         tp = entry + max((entry - sl) * 2.1, atr_m1 * 5)
-        conf = 54 + min(vol_ratio * 10, 14)
+        conf = 60 + min(vol_ratio * 10, 14)
         if conf >= MIN_CONFIDENCE:
             return _signal("BUY", "SCALP_BREAKOUT", conf, entry, sl, tp, context, spread_units)
 
-    if current < m15_range_low and body_ratio >= 0.55 and vol_ratio >= 1.15:
+    if current < m15_range_low and body_ratio >= 0.65 and vol_ratio >= 1.35 and breakout_impulse >= 1.1:
         entry = current
         sl = max(recent_high, m15_range_low + atr_m1 * 0.8)
         tp = entry - max((sl - entry) * 2.1, atr_m1 * 5)
-        conf = 54 + min(vol_ratio * 10, 14)
+        conf = 60 + min(vol_ratio * 10, 14)
         if conf >= MIN_CONFIDENCE:
             return _signal("SELL", "SCALP_BREAKOUT", conf, entry, sl, tp, context, spread_units)
 

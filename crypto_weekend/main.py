@@ -21,8 +21,11 @@ from .config import (
     DASHBOARD_DIR,
     DATA_DIR,
     LOOP_INTERVAL_S,
+    LOSS_COOLDOWN_MIN,
     LOGS_DIR,
     MAGIC,
+    MAX_CONSECUTIVE_LOSSES,
+    MAX_SESSION_DRAWDOWN_PCT,
     MAX_OPEN_PER_SYMBOL,
     MAX_OPEN_TRADES,
     MICRO_BREAKEVEN_TRIGGER_R,
@@ -38,6 +41,7 @@ from .config import (
     RUNTIME_LOG,
     SPREAD_LIMITS_UNITS,
     STATUS_PATH,
+    SYMBOL_REENTRY_COOLDOWN_MIN,
     TF_H1,
     TF_M1,
     TF_M15,
@@ -151,6 +155,10 @@ class CryptoWeekendBot:
         self.pair_states: dict[str, dict] = {}
         self.open_meta: dict[int, dict] = {}
         self.reject_cooldown_until: dict[str, datetime] = {}
+        self.symbol_cooldown_until: dict[str, datetime] = {}
+        self.session_start_balance: float | None = None
+        self.consecutive_losses = 0
+        self.global_pause_until: datetime | None = None
 
     def refresh(self):
         now = time.monotonic()
@@ -196,7 +204,7 @@ class CryptoWeekendBot:
             by_symbol[p.symbol] = by_symbol.get(p.symbol, 0) + 1
         return total, by_symbol
 
-    def _normalize_trade_levels(self, symbol: str, direction: str, entry: float, sl: float, tp: float):
+    def _normalize_trade_levels(self, symbol: str, direction: str, entry: float, sl: float, tp: float, tick: dict | None = None):
         info = mt5.symbol_info(symbol)
         if info is None:
             return entry, sl, tp
@@ -213,15 +221,17 @@ class CryptoWeekendBot:
 
         risk_dist = max(abs(entry - sl), min_dist)
         reward_dist = max(abs(tp - entry), risk_dist * 1.1, min_dist * 1.1)
+        bid = float(tick["bid"]) if tick else entry
+        ask = float(tick["ask"]) if tick else entry
 
         if direction == "BUY":
-            sl = min(sl, entry - min_dist)
-            tp = max(tp, entry + min_dist)
+            sl = min(sl, entry - min_dist, bid - min_dist)
+            tp = max(tp, entry + min_dist, ask + min_dist)
             sl = min(sl, entry - risk_dist)
             tp = max(tp, entry + reward_dist)
         else:
-            sl = max(sl, entry + min_dist)
-            tp = min(tp, entry - min_dist)
+            sl = max(sl, entry + min_dist, ask + min_dist)
+            tp = min(tp, entry - min_dist, bid - min_dist)
             sl = max(sl, entry + risk_dist)
             tp = min(tp, entry - reward_dist)
 
@@ -233,10 +243,56 @@ class CryptoWeekendBot:
         digits = int(getattr(info, "digits", 5) or 5)
         return round(entry, digits), round(sl, digits), round(tp, digits)
 
+    def _attach_sltp_with_retry(self, ticket: int, symbol: str, direction: str, entry: float, sl: float, tp: float):
+        for multiplier in (1.0, 1.5, 2.0, 3.0):
+            tick = get_tick(symbol)
+            adj_entry, adj_sl, adj_tp = self._normalize_trade_levels(
+                symbol,
+                direction,
+                entry,
+                entry - (entry - sl) * multiplier if direction == "BUY" else entry + (sl - entry) * multiplier,
+                entry + (tp - entry) * multiplier if direction == "BUY" else entry - (entry - tp) * multiplier,
+                tick=tick,
+            )
+            if self._modify_sl(ticket, symbol, adj_sl, adj_tp):
+                return adj_sl, adj_tp
+        return None, None
+
+    def _close_position_market(self, pos, comment: str = "ACRProtect"):
+        order_type = mt5.ORDER_TYPE_SELL if pos.type == mt5.ORDER_TYPE_BUY else mt5.ORDER_TYPE_BUY
+        tick = get_tick(pos.symbol)
+        price = float(tick["bid"]) if order_type == mt5.ORDER_TYPE_SELL and tick else pos.price_current
+        if order_type == mt5.ORDER_TYPE_BUY and tick:
+            price = float(tick["ask"])
+        result = mt5.order_send({
+            "action": mt5.TRADE_ACTION_DEAL,
+            "position": pos.ticket,
+            "symbol": pos.symbol,
+            "type": order_type,
+            "volume": pos.volume,
+            "price": price,
+            "magic": MAGIC,
+            "comment": comment,
+            "type_time": mt5.ORDER_TIME_GTC,
+            "type_filling": mt5.ORDER_FILLING_IOC,
+        })
+        return result is not None and result.retcode == mt5.TRADE_RETCODE_DONE
+
     def maybe_open(self, symbol: str, signal):
         total_open, by_symbol = self.open_counts()
         if total_open >= MAX_OPEN_TRADES or by_symbol.get(symbol, 0) >= MAX_OPEN_PER_SYMBOL:
             self.pair_states.setdefault(symbol, {})["last_reason"] = "Position cap reached"
+            return
+
+        positions = mt5.positions_get() or []
+        bot_positions = [p for p in positions if getattr(p, "magic", 0) == MAGIC]
+        if any(p.symbol == symbol for p in bot_positions):
+            self.pair_states.setdefault(symbol, {})["last_reason"] = "Symbol already has open trade"
+            return
+
+        pause_until = self.global_pause_until
+        if pause_until and pause_until > datetime.now(timezone.utc):
+            self.pair_states.setdefault(symbol, {})["last_reason"] = "Global loss cooldown active"
             return
 
         m1_df = self.cache.get((symbol, TF_M1))
@@ -253,13 +309,28 @@ class CryptoWeekendBot:
             self.pair_states.setdefault(symbol, {})["last_reason"] = "Cooling down after broker reject"
             return
 
+        symbol_pause = self.symbol_cooldown_until.get(symbol)
+        if symbol_pause and symbol_pause > datetime.now(timezone.utc):
+            self.pair_states.setdefault(symbol, {})["last_reason"] = "Symbol cooldown active"
+            return
+
+        account = mt5.account_info()
+        if account is not None:
+            if self.session_start_balance is None:
+                self.session_start_balance = float(account.balance)
+            max_loss = self.session_start_balance * (MAX_SESSION_DRAWDOWN_PCT / 100.0)
+            if float(account.equity) <= self.session_start_balance - max_loss:
+                self.global_pause_until = datetime.now(timezone.utc) + timedelta(minutes=LOSS_COOLDOWN_MIN)
+                self.pair_states.setdefault(symbol, {})["last_reason"] = "Session drawdown guard active"
+                return
+
         tick = get_tick(symbol)
         if not tick or tick["spread_units"] > SPREAD_LIMITS_UNITS[symbol]:
             self.pair_states.setdefault(symbol, {})["last_reason"] = "Spread too wide"
             return
 
         entry = tick["ask"] if signal.direction == "BUY" else tick["bid"]
-        entry, sl, tp = self._normalize_trade_levels(symbol, signal.direction, entry, signal.sl, signal.tp)
+        entry, sl, tp = self._normalize_trade_levels(symbol, signal.direction, entry, signal.sl, signal.tp, tick=tick)
         lots = self.risk_lots(symbol, entry, sl)
         if lots <= 0:
             self.pair_states.setdefault(symbol, {})["last_reason"] = "Lot sizing failed"
@@ -271,8 +342,6 @@ class CryptoWeekendBot:
             "symbol": symbol,
             "type": order_type,
             "price": entry,
-            "sl": sl,
-            "tp": tp,
             "volume": lots,
             "magic": MAGIC,
             "comment": _safe_comment(f"ACR{signal.signal_type[:12]}"),
@@ -302,6 +371,21 @@ class CryptoWeekendBot:
             self.pair_states.setdefault(symbol, {})["last_reason"] = "opened but not found"
             return
 
+        attached_sl, attached_tp = self._attach_sltp_with_retry(
+            pos.ticket,
+            symbol,
+            signal.direction,
+            float(pos.price_open),
+            sl,
+            tp,
+        )
+        if attached_sl is None or attached_tp is None:
+            self.pair_states.setdefault(symbol, {})["last_reason"] = "Could not attach broker-safe stops"
+            logger.warning("[%s] OPEN FAIL post-fill stop attach", symbol)
+            self._close_position_market(pos, comment="ACRNoStops")
+            self.reject_cooldown_until[symbol] = datetime.now(timezone.utc) + timedelta(seconds=90)
+            return
+
         trade_id = f"CRYPTO_{symbol}_{pos.ticket}"
         self.open_meta[pos.ticket] = {
             "trade_id": trade_id,
@@ -309,8 +393,8 @@ class CryptoWeekendBot:
             "direction": signal.direction,
             "signal_type": signal.signal_type,
             "entry_price": pos.price_open,
-            "initial_sl": sl,
-            "tp_price": tp,
+            "initial_sl": attached_sl,
+            "tp_price": attached_tp,
             "lots": pos.volume,
             "opened_at": datetime.now(timezone.utc).isoformat(),
             "breakeven": False,
@@ -319,6 +403,8 @@ class CryptoWeekendBot:
             "mfe_r": 0.0,
             "mae_r": 0.0,
             "close_attempts": 0,
+            "last_mark_price": float(pos.price_current),
+            "last_mark_pnl": float(getattr(pos, "profit", 0.0) or 0.0),
         }
         self.store.log_open({
             "trade_id": trade_id,
@@ -329,15 +415,15 @@ class CryptoWeekendBot:
             "confidence": signal.confidence,
             "session": "WEEKEND_CRYPTO",
             "entry_price": pos.price_open,
-            "sl_price": sl,
-            "tp_price": tp,
+            "sl_price": attached_sl,
+            "tp_price": attached_tp,
             "lots": pos.volume,
             "opened_at_utc": datetime.now(timezone.utc).isoformat(),
         })
         self.last_signal_bar[dedup_key] = bar_key
         self.pair_states.setdefault(symbol, {})["last_signal"] = signal.signal_type
         self.pair_states.setdefault(symbol, {})["last_reason"] = f"Opened {signal.signal_type}"
-        logger.info("[%s] OPEN %s %s lots=%.2f entry=%.5f sl=%.5f tp=%.5f conf=%.1f", symbol, signal.direction, signal.signal_type, pos.volume, pos.price_open, sl, tp, signal.confidence)
+        logger.info("[%s] OPEN %s %s lots=%.2f entry=%.5f sl=%.5f tp=%.5f conf=%.1f", symbol, signal.direction, signal.signal_type, pos.volume, pos.price_open, attached_sl, attached_tp, signal.confidence)
 
     def _modify_sl(self, ticket: int, symbol: str, sl: float, tp: float):
         result = mt5.order_send({
@@ -378,7 +464,10 @@ class CryptoWeekendBot:
                     meta["close_attempts"] = meta.get("close_attempts", 0) + 1
                     if meta["close_attempts"] < 8:
                         continue
+                    close_price = float(meta.get("last_mark_price") or meta["entry_price"])
+                    pnl = float(meta.get("last_mark_pnl") or 0.0)
                 self.store.log_close(meta["trade_id"], close_price, pnl, "EXIT", meta["mae_r"], meta["mfe_r"])
+                self._record_close_controls(meta["symbol"], pnl)
                 logger.info("[%s] CLOSE %s pnl=$%.2f", meta["symbol"], meta["trade_id"], pnl)
                 del self.open_meta[ticket]
                 continue
@@ -389,6 +478,8 @@ class CryptoWeekendBot:
             current_r = ((pos.price_current - meta["entry_price"]) / risk_dist) if meta["direction"] == "BUY" else ((meta["entry_price"] - pos.price_current) / risk_dist)
             meta["mfe_r"] = max(meta["mfe_r"], current_r)
             meta["mae_r"] = min(meta["mae_r"], current_r)
+            meta["last_mark_price"] = float(pos.price_current)
+            meta["last_mark_pnl"] = float(getattr(pos, "profit", 0.0) or 0.0)
 
             is_micro = meta.get("signal_type") in {
                 "SCALP_MOMENTUM_PULSE",
@@ -442,8 +533,10 @@ class CryptoWeekendBot:
                     logger.info("[%s] TIME STOP %s", meta["symbol"], meta["trade_id"])
 
     def lookup_close(self, ticket: int, symbol: str):
-        start = datetime.now(timezone.utc) - timedelta(days=3)
-        deals = mt5.history_deals_get(start, datetime.now(timezone.utc), group=f"*{symbol}*") or []
+        deals = mt5.history_deals_get(position=ticket) or []
+        if not deals:
+            start = datetime.now(timezone.utc) - timedelta(days=3)
+            deals = mt5.history_deals_get(start, datetime.now(timezone.utc), group=f"*{symbol}*") or []
         for deal in reversed(deals):
             if getattr(deal, "position_id", 0) == ticket and getattr(deal, "entry", None) == mt5.DEAL_ENTRY_OUT:
                 return float(deal.price), float(deal.profit)
@@ -486,6 +579,17 @@ class CryptoWeekendBot:
                 state["last_reason"] = signal.notes or "No valid M1 scalp"
         logger.info("Tick complete | open_positions=%d | opened=%d | pa=%d", len(self.open_meta), opened, pa)
 
+    def _record_close_controls(self, symbol: str, pnl: float):
+        if pnl > 0:
+            self.consecutive_losses = 0
+            self.symbol_cooldown_until[symbol] = datetime.now(timezone.utc) + timedelta(minutes=5)
+            return
+        self.consecutive_losses += 1
+        self.symbol_cooldown_until[symbol] = datetime.now(timezone.utc) + timedelta(minutes=SYMBOL_REENTRY_COOLDOWN_MIN)
+        if self.consecutive_losses >= MAX_CONSECUTIVE_LOSSES:
+            self.global_pause_until = datetime.now(timezone.utc) + timedelta(minutes=LOSS_COOLDOWN_MIN)
+            self.consecutive_losses = 0
+
     def write_status(self):
         account = mt5.account_info()
         payload = {
@@ -495,6 +599,11 @@ class CryptoWeekendBot:
                 "balance": round(float(account.balance), 2) if account else 0.0,
                 "equity": round(float(account.equity), 2) if account else 0.0,
                 "margin_free": round(float(account.margin_free), 2) if account else 0.0,
+            },
+            "risk_controls": {
+                "session_start_balance": self.session_start_balance,
+                "consecutive_losses": self.consecutive_losses,
+                "global_pause_until": self.global_pause_until.isoformat() if self.global_pause_until else None,
             },
             "open_positions": list(self.open_meta.values()),
             "pair_states": self.pair_states,

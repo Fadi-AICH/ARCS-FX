@@ -100,7 +100,7 @@ def _archive_previous_run_log(path: Path) -> None:
 
 def _archive_previous_run_logs() -> None:
     """Each prop-bot session starts on clean live log files."""
-    Path("logs").mkdir(exist_ok=True)
+    Path(PROP_LOG_PATH).parent.mkdir(parents=True, exist_ok=True)
     _archive_previous_run_log(Path(PROP_LOG_PATH))
     _archive_previous_run_log(Path(PROP_EVENTS_PATH))
 
